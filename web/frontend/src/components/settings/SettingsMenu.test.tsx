@@ -237,6 +237,8 @@ describe('provider and voice settings behavior', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
 
     expect(screen.getByText(/Signed in as player@example.com/)).toBeTruthy()
+    expect(screen.getByText(/Automatic routing matches each call site's OpenAI model/)).toBeTruthy()
+    expect(screen.getAllByRole('option', { name: 'Automatic (match OpenAI routing)' })).toHaveLength(4)
     expect((screen.getByLabelText('Strong tasks') as HTMLSelectElement).value).toBe('account-strong')
     fireEvent.change(screen.getByLabelText('Cheap tasks'), { target: { value: 'account-default' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save Codex Routing' }))
