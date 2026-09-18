@@ -526,6 +526,7 @@ class CodexProvider:
         self,
         messages: List[Dict[str, Any]],
         tier: str,
+        preferred_model: Optional[str] = None,
         reasoning_effort: Optional[str] = None,
         response_format: Any = None,
         response_format_provided: bool = False,
@@ -538,6 +539,7 @@ class CodexProvider:
                     return self._complete_once(
                         messages,
                         tier,
+                        preferred_model,
                         reasoning_effort,
                         response_format,
                         response_format_provided,
@@ -553,6 +555,7 @@ class CodexProvider:
         self,
         messages: List[Dict[str, Any]],
         tier: str,
+        preferred_model: Optional[str],
         reasoning_effort: Optional[str],
         response_format: Any,
         response_format_provided: bool,
@@ -563,7 +566,9 @@ class CodexProvider:
         catalogue = self.list_models(force=True)
         import model_config
 
-        selected, warning = model_config.select_codex_model(tier, catalogue)
+        selected, warning = model_config.select_codex_model(
+            tier, catalogue, preferred_model=preferred_model
+        )
         if warning:
             self._warning(warning)
         selected_entry = next(item for item in catalogue if item["id"] == selected)

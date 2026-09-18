@@ -300,6 +300,35 @@ def test_automatic_route_uses_account_default_not_another_tier(isolated_settings
     assert warning is None
 
 
+def test_automatic_route_prefers_matching_openai_model(isolated_settings):
+    selected, warning = model_config.select_codex_model(
+        "cheap",
+        [
+            {"id": "account-default", "is_default": True},
+            {"id": "gpt-5.6-luna", "is_default": False},
+        ],
+        preferred_model="gpt-5.6-luna",
+    )
+    assert selected == "gpt-5.6-luna"
+    assert warning is None
+
+
+def test_manual_codex_route_overrides_matching_openai_model(isolated_settings):
+    model_config.persist_codex_routing(
+        routes={"cheap": "manual", "balanced": "", "strong": "", "premium": ""}
+    )
+    selected, warning = model_config.select_codex_model(
+        "cheap",
+        [
+            {"id": "manual", "is_default": False},
+            {"id": "gpt-5.6-luna", "is_default": True},
+        ],
+        preferred_model="gpt-5.6-luna",
+    )
+    assert selected == "manual"
+    assert warning is None
+
+
 def test_nearest_configured_tier_is_used_for_retired_model(isolated_settings):
     model_config.persist_codex_routing(
         routes={"cheap": "cheap", "balanced": "retired", "strong": "strong", "premium": "premium"},
@@ -389,6 +418,43 @@ def test_provider_switching_preserves_codex_routes(isolated_settings):
         model_config.set_provider(original)
 
 
+def test_codex_automatic_profiles_match_openai_models_efforts_and_retries():
+    from model_registry import CALLSITE_BINDINGS
+
+    for task_id, binding in CALLSITE_BINDINGS.items():
+        openai_ladder = binding.profiles_for("openai")
+        for attempt, profile_name in enumerate(openai_ladder):
+            openai_profile = getattr(model_config, profile_name)
+            codex_profile = model_config.codex_callsite_config(
+                task_id, attempt=attempt
+            )
+            assert codex_profile["codex_preferred_model"] == openai_profile["model"]
+            assert codex_profile["reasoning_effort"] == openai_profile.get(
+                "reasoning_effort", "none"
+            )
+
+        final_codex_profile = model_config.codex_callsite_config(
+            task_id, attempt=len(openai_ladder) + 3
+        )
+        final_openai_profile = getattr(model_config, openai_ladder[-1])
+        assert final_codex_profile["codex_preferred_model"] == final_openai_profile["model"]
+        assert final_codex_profile["reasoning_effort"] == final_openai_profile.get(
+            "reasoning_effort", "none"
+        )
+
+
+def test_codex_reasoning_is_clamped_only_to_discovered_model_capabilities():
+    assert CodexProvider._effort(
+        "none", {"supported_reasoning_efforts": ["none", "low", "high"]}
+    ) == "none"
+    assert CodexProvider._effort(
+        "none", {"supported_reasoning_efforts": ["low", "high"]}
+    ) == "low"
+    assert CodexProvider._effort(
+        "high", {"supported_reasoning_efforts": ["low", "medium"]}
+    ) == "medium"
+
+
 @pytest.mark.parametrize("provider", ["openai", "legacy", "lmstudio"])
 def test_existing_openai_compatible_provider_route_is_unchanged(monkeypatch, provider):
     seen = {}
@@ -426,6 +492,8 @@ def test_codex_api_route_returns_openai_shape(monkeypatch, isolated_settings):
     class Provider:
         def complete(self, **kwargs):
             assert kwargs["tier"] == "premium"
+            assert kwargs["preferred_model"] == "gpt-5.6-luna"
+            assert kwargs["reasoning_effort"] == "none"
             return {
                 "content": json.dumps({"answer": 42}),
                 "model": "discovered-model",

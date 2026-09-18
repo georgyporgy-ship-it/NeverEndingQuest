@@ -303,6 +303,10 @@ function LocalProviderPanelBody() {
                 {' '}and enter code <strong>{settings.codexLogin.user_code}</strong>.
               </p>
             )}
+            <p className="neq-settings-help-parity">
+              Automatic routing matches each call site&apos;s OpenAI model and reasoning effort when available.
+              Selecting a model below creates a Codex-only model override for that tier.
+            </p>
             {CODEX_TIERS.map((tier) => {
               const selected = codexRoutes[tier]
               const available = !selected || codexModels.some((item) => item.id === selected)
@@ -315,7 +319,7 @@ function LocalProviderPanelBody() {
                     value={selected}
                     onChange={(event) => updateCodexRoute(tier, event.target.value)}
                   >
-                    <option value="">Automatic (account default)</option>
+                    <option value="">Automatic (match OpenAI routing)</option>
                     {!available && <option value={selected}>{selected} (unavailable)</option>}
                     {codexModels.map((item) => (
                       <option key={item.id} value={item.id}>{item.display_name}</option>

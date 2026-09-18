@@ -4521,6 +4521,10 @@
                                 <button class="settings-btn" id="codex-refresh-btn">Refresh Models</button>
                             </div>
                             <div id="codex-device-login" class="settings-help" style="display:none;"></div>
+                            <div class="settings-help">
+                                Automatic routing matches each call site's OpenAI model and reasoning effort when available.
+                                Selecting a model below creates a Codex-only model override for that tier.
+                            </div>
                             <label for="codex-cheap-model">Cheap tasks</label>
                             <select class="settings-select codex-route-select" id="codex-cheap-model" data-tier="cheap"></select>
                             <label for="codex-balanced-model">Balanced tasks</label>
@@ -7426,7 +7430,7 @@
                         var selected = (d.routes || {})[tier] || '';
                         select.textContent = '';
                         var automatic = document.createElement('option');
-                        automatic.value = ''; automatic.textContent = 'Automatic (account default)';
+                        automatic.value = ''; automatic.textContent = 'Automatic (match OpenAI routing)';
                         select.appendChild(automatic);
                         if (selected && !models.some(function (m) { return m.id === selected; })) {
                             var unavailable = document.createElement('option');

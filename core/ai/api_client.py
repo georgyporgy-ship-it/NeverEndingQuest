@@ -334,7 +334,7 @@ def create_completion(messages, model, temperature=None, retry_attempt=0, **kwar
         model: model identifier string (e.g. "gpt-5.2", "gemini-3.1-pro-preview")
         temperature: optional float temperature (used by legacy/lmstudio,
                      GPT-5.x at reasoning=none only)
-        retry_attempt: unused (kept for backwards compatibility)
+        retry_attempt: zero-based retry rung used by provider routing
         **kwargs: provider-specific params from callsite config dicts
                   (reasoning_effort, thinking_level, etc.).
                   top_p is stripped. response_format uses _UNSET sentinel
@@ -362,12 +362,18 @@ def create_completion(messages, model, temperature=None, retry_attempt=0, **kwar
     _response_format = kwargs.pop("response_format", _UNSET)
 
     if request_provider == "codex_oauth":
-        # Callsite API-provider choices must never leak into Codex. Resolve the
-        # independent Codex tier at this central boundary, including callers
-        # whose local provider branch selected a legacy config dictionary.
-        codex_config = model_config.codex_callsite_config(task_id)
+        # Resolve an isolated Codex request at the central boundary. Automatic
+        # routing mirrors the tested OpenAI model/effort profile as a preference
+        # without changing or reusing OpenAI credentials, clients, or endpoints.
+        # A saved Codex tier route remains a Codex-only manual model override.
+        codex_config = model_config.codex_callsite_config(
+            task_id, attempt=retry_attempt
+        )
         model = codex_config["model"]
         kwargs["codex_tier"] = codex_config["codex_tier"]
+        kwargs["codex_preferred_model"] = codex_config[
+            "codex_preferred_model"
+        ]
         kwargs["reasoning_effort"] = codex_config["reasoning_effort"]
 
     # create_completion() is a thin routing layer. It does NOT inject
@@ -384,6 +390,7 @@ def create_completion(messages, model, temperature=None, retry_attempt=0, **kwar
             from core.ai.codex_client import get_codex_provider
 
             tier = kwargs.pop("codex_tier", "balanced")
+            preferred_model = kwargs.pop("codex_preferred_model", None)
             effort = kwargs.pop("reasoning_effort", None)
             timeout = kwargs.pop("timeout", None)
             # Gemini-only schema objects use a different dialect and are never
@@ -393,6 +400,7 @@ def create_completion(messages, model, temperature=None, retry_attempt=0, **kwar
             result = get_codex_provider().complete(
                 messages=messages,
                 tier=tier,
+                preferred_model=preferred_model,
                 reasoning_effort=effort,
                 response_format=None if _response_format is _UNSET else _response_format,
                 response_format_provided=_response_format is not _UNSET,

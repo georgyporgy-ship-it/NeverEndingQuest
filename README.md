@@ -157,11 +157,20 @@ ChatGPT tokens, or store those credentials in `user_settings.json`.
 4. Select **Refresh Models** after sign-in. The model dropdowns are populated
    from Codex's `model/list` result for that account and plan.
 
-Codex routing is independent of the OpenAI API provider's tested call-site
-matrix. NeverEndingQuest maps its call sites to four configurable capability
-tiers: **cheap**, **balanced**, **strong**, and **premium**. Each tier can use
-the account default or a model from the live catalogue. The game does not embed
-today's Codex model names as permanent application logic.
+Codex authentication, saved routes, and inference remain independent of the
+OpenAI API provider. For **Automatic** routing, NeverEndingQuest mirrors each
+call site's current tested OpenAI model id, reasoning effort, and retry ladder
+when that model is also present in the authenticated Codex catalogue. If the
+exact model is unavailable to the ChatGPT account, the Codex account default is
+used. Reasoning effort is changed only when the discovered model does not
+support the requested level.
+
+The four Codex-only capability tiers, **cheap**, **balanced**, **strong**, and
+**premium**, provide manual model overrides. Selecting a model for a tier
+changes only Codex requests in that tier and does not alter the OpenAI, Gemini,
+Legacy, or Local provider matrices. Leaving a tier on **Automatic** preserves
+the OpenAI-matched per-call-site behavior. The game does not embed today's
+Codex catalogue as permanent application logic.
 
 Newly discovered models are offered for manual selection but do not replace a
 healthy saved route automatically. If a configured model disappears, the

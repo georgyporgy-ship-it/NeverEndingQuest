@@ -1110,16 +1110,12 @@ PROVIDER_MODELS = {
 }
 
 CODEX_TIERS = ("cheap", "balanced", "strong", "premium")
-CODEX_TIER_EFFORTS = {
-    "cheap": "low",
-    "balanced": "medium",
-    "strong": "high",
-    "premium": "high",
-}
 
-# This map is intentionally separate from the carefully evaluated API-provider
-# registry. Unknown and lightweight callsites default to cheap; only callsites
-# whose game role benefits from more capability are promoted here.
+# Manual Codex model overrides remain grouped by capability tier. Automatic
+# routing does not use these labels to invent a different model or reasoning
+# policy: it mirrors the current OpenAI callsite profile whenever that exact
+# model is present in the authenticated Codex catalogue. The tier is consulted
+# only for a user-selected Codex-only model override and for its fallback.
 CODEX_TASK_TIERS = {
     "T040": "premium",  # strict state/combat verdict
     "T065": "premium",  # main response validator
@@ -1480,21 +1476,49 @@ def codex_tier_for_task(task_id):
     return CODEX_TASK_TIERS.get(task_id, "cheap")
 
 
-def codex_callsite_config(task_id):
+def codex_callsite_config(task_id, attempt=0):
+    """Translate the current OpenAI callsite profile into Codex-only routing.
+
+    The OpenAI registry remains authoritative for its own provider. Codex reads
+    a detached snapshot solely to preserve the already-tested model choice,
+    reasoning effort, and retry ladder when Automatic routing is selected.
+    Manual Codex tier routes can replace only the model; the per-callsite effort
+    is still preserved and later clamped to the discovered model capabilities.
+    """
     tier = codex_tier_for_task(task_id)
+    preferred_model = None
+    reasoning_effort = None
+    binding = CALLSITE_BINDINGS.get(task_id)
+    if binding is not None:
+        try:
+            attempt_index = int(attempt)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("attempt must be a non-negative integer") from exc
+        if attempt_index < 0:
+            raise ValueError("attempt must be a non-negative integer")
+        ladder = binding.profiles_for("openai")
+        profile_name = ladder[min(attempt_index, len(ladder) - 1)]
+        profile = globals()[profile_name]
+        preferred_model = profile.get("model")
+        # Codex app-server uses the explicit "none" effort where supported.
+        # Profiles without an effort historically mean no reasoning.
+        reasoning_effort = profile.get("reasoning_effort", "none")
     return {
         "model": "codex-tier:%s" % tier,
         "codex_tier": tier,
-        "reasoning_effort": CODEX_TIER_EFFORTS[tier],
+        "codex_preferred_model": preferred_model,
+        "reasoning_effort": reasoning_effort,
     }
 
 
-def select_codex_model(tier, models):
+def select_codex_model(tier, models, preferred_model=None):
     """Select a configured live model or the nearest stable fallback.
 
-    New models never replace healthy routes. Substitution happens only when a
-    configured model disappears. The account default is used for unconfigured
-    tiers, keeping installation defaults dynamic rather than hardcoded.
+    A manual Codex tier route has priority and remains stable until unavailable.
+    With no manual route, the exact model from the current OpenAI callsite
+    profile is preferred when the authenticated Codex account exposes it. The
+    account default is the final dynamic fallback. New models never replace a
+    healthy manual route.
     """
     if tier not in CODEX_TIERS:
         tier = "balanced"
@@ -1513,6 +1537,8 @@ def select_codex_model(tier, models):
         return configured, None
 
     if not configured:
+        if preferred_model in available:
+            return preferred_model, None
         account_default = next(
             (item["id"] for item in models if item.get("is_default") is True),
             next(iter(available)),
@@ -1695,7 +1721,7 @@ def resolve_callsite_config(task_id, provider=None, attempt=0):
             raise ValueError("attempt must be a non-negative integer") from exc
         if attempt_index < 0:
             raise ValueError("attempt must be a non-negative integer")
-        return copy.deepcopy(codex_callsite_config(task_id))
+        return copy.deepcopy(codex_callsite_config(task_id, attempt=attempt_index))
     try:
         binding = CALLSITE_BINDINGS[task_id]
     except KeyError as exc:
