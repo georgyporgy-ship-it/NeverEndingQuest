@@ -209,6 +209,33 @@ def test_strict_schema_and_reasoning_are_translated(isolated_settings):
     assert "Return only" not in turn["input"][0]["text"]
 
 
+def test_manual_model_override_preserves_callsite_reasoning(isolated_settings):
+    model_config.persist_codex_routing(
+        routes={"cheap": "", "balanced": "", "strong": "", "premium": "manual"}
+    )
+    manual = {
+        "model": "manual",
+        "displayName": "Manual",
+        "hidden": False,
+        "isDefault": False,
+        "defaultReasoningEffort": "high",
+        "supportedReasoningEfforts": [
+            {"reasoningEffort": "none"},
+            {"reasoningEffort": "high"},
+        ],
+    }
+    rpc = FakeRpc(models=[manual, MODELS[0]], text="manual answer")
+    result = complete(
+        CodexProvider(rpc),
+        tier="premium",
+        preferred_model="gpt-5.6-luna",
+        reasoning_effort="none",
+    )
+    turn = next(params for method, params, _ in rpc.requests if method == "turn/start")
+    assert result["model"] == "manual"
+    assert turn["effort"] == "none"
+
+
 def test_generic_json_mode_adds_json_instruction_not_empty_schema(isolated_settings):
     rpc = FakeRpc()
     complete(
@@ -514,6 +541,65 @@ def test_codex_api_route_returns_openai_shape(monkeypatch, isolated_settings):
     assert response.choices[0].message.content == '{"answer": 42}'
     assert response.model == "discovered-model"
     assert response.provider == "codex_oauth"
+
+
+def test_codex_api_route_preserves_openai_retry_effort(monkeypatch, isolated_settings):
+    seen = {}
+
+    class Provider:
+        def complete(self, **kwargs):
+            seen.update(kwargs)
+            return {
+                "content": "retry",
+                "model": kwargs["preferred_model"],
+                "usage": {},
+                "id": "turn-retry",
+                "finish_reason": "stop",
+            }
+
+    import core.ai.codex_client as codex_client
+    monkeypatch.setattr(codex_client, "get_codex_provider", lambda: Provider())
+    api_client.create_completion(
+        [{"role": "user", "content": "retry"}],
+        "irrelevant-api-model",
+        retry_attempt=2,
+        _request_provider="codex_oauth",
+        task_id="T097",
+        response_format=None,
+    )
+    assert seen["preferred_model"] == "gpt-5.6-luna"
+    assert seen["reasoning_effort"] == "medium"
+
+
+def test_codex_capture_boundary_preserves_retry_rung(monkeypatch, isolated_settings):
+    from utils.capture.multi_model_capture import capture_and_fanout
+
+    seen = {}
+
+    class Provider:
+        def complete(self, **kwargs):
+            seen.update(kwargs)
+            return {
+                "content": "retry",
+                "model": kwargs["preferred_model"],
+                "usage": {},
+                "id": "turn-retry",
+                "finish_reason": "stop",
+            }
+
+    import core.ai.codex_client as codex_client
+    monkeypatch.setattr(codex_client, "get_codex_provider", lambda: Provider())
+    response = capture_and_fanout(
+        "T097",
+        api_client.create_completion,
+        messages=[{"role": "user", "content": "retry"}],
+        model="codex-tier:cheap",
+        response_format=None,
+        _request_provider="codex_oauth",
+        _callsite_attempt=2,
+    )
+    assert response.choices[0].message.content == "retry"
+    assert seen["reasoning_effort"] == "medium"
 
 
 @pytest.mark.skipif(

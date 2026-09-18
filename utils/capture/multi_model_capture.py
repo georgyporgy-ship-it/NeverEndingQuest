@@ -453,6 +453,11 @@ def capture_and_fanout(task_id, primary_fn, messages, **kwargs):
         kwargs["_request_provider"] = request_provider
         kwargs["task_id"] = task_id
         kwargs["_usage_invocation_id"] = usage_invocation_id
+        # Codex mirrors the OpenAI retry ladder, but resolves it inside its own
+        # provider boundary. Preserve the canonical callsite attempt without
+        # changing the request contract used by any other provider.
+        if request_provider == "codex_oauth":
+            kwargs.setdefault("retry_attempt", callsite_attempt)
     else:
         # Private router metadata must never leak into a raw SDK-compatible call.
         kwargs.pop("_request_provider", None)

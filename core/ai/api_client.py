@@ -376,9 +376,9 @@ def create_completion(messages, model, temperature=None, retry_attempt=0, **kwar
         ]
         kwargs["reasoning_effort"] = codex_config["reasoning_effort"]
 
-    # create_completion() is a thin routing layer. It does NOT inject
-    # reasoning_effort, thinking_level, or other params. The callsite
-    # owns its parameters via named config dicts in model_config.py.
+    # create_completion() remains a thin router. Existing providers retain the
+    # parameters assembled by their callsites. Codex alone translates the
+    # detached OpenAI-parity snapshot above into app-server fields.
 
     # --- Enforce hard API constraints ---
     _enforce_provider_constraints(request_provider, model, temperature, kwargs)
