@@ -1,3 +1,4 @@
+import io
 import json
 
 import pytest
@@ -6,6 +7,7 @@ import model_config
 from core.ai import api_client
 from core.ai.codex_client import (
     CodexAuthenticationError,
+    CodexAppServer,
     CodexProvider,
     CodexProtocolError,
     CodexTimeoutError,
@@ -225,6 +227,19 @@ def test_unauthenticated_state_fails_before_inference(isolated_settings):
     assert not any(method == "thread/start" for method, _, _ in rpc.requests)
 
 
+def test_app_server_unavailable_is_reported_without_start_attempt():
+    class UnavailableRpc(FakeRpc):
+        installed = False
+
+        def request(self, *args, **kwargs):
+            raise AssertionError("status must not start an unavailable app-server")
+
+    status = CodexProvider(UnavailableRpc()).status()
+    assert status["installed"] is False
+    assert status["authenticated"] is False
+    assert "not found" in status["error"].lower()
+
+
 def test_model_discovery_status_login_and_logout(isolated_settings):
     rpc = FakeRpc()
     provider = CodexProvider(rpc)
@@ -272,6 +287,19 @@ def test_healthy_route_is_not_auto_upgraded(isolated_settings):
     assert warning is None
 
 
+def test_automatic_route_uses_account_default_not_another_tier(isolated_settings):
+    model_config.persist_codex_routing(
+        routes={"cheap": "", "balanced": "", "strong": "chosen-strong", "premium": ""},
+        auto_replace_unavailable=True,
+    )
+    selected, warning = model_config.select_codex_model("cheap", [
+        {"id": "account-default", "is_default": True},
+        {"id": "chosen-strong", "is_default": False},
+    ])
+    assert selected == "account-default"
+    assert warning is None
+
+
 def test_nearest_configured_tier_is_used_for_retired_model(isolated_settings):
     model_config.persist_codex_routing(
         routes={"cheap": "cheap", "balanced": "retired", "strong": "strong", "premium": "premium"},
@@ -301,6 +329,22 @@ def test_transport_crash_restarts_and_retries(isolated_settings):
     assert rpc.restart_count == 1
 
 
+def test_authentication_loss_during_turn_is_actionable(isolated_settings):
+    class AuthLossRpc(FakeRpc):
+        def request(self, method, params=None, timeout=None, ensure_started=True):
+            result = super().request(method, params, timeout, ensure_started)
+            if method == "turn/start":
+                self.notifications[-1]["params"]["turn"] = {
+                    "id": result["turn"]["id"],
+                    "status": "failed",
+                    "error": "401 unauthorized",
+                }
+            return result
+
+    with pytest.raises(CodexAuthenticationError, match="authentication was lost"):
+        complete(CodexProvider(AuthLossRpc()))
+
+
 def test_malformed_catalogue_and_empty_agent_message_fail(isolated_settings):
     with pytest.raises(CodexProtocolError, match="malformed catalogue"):
         CodexProvider(FakeRpc(models="not-a-list")).list_models()
@@ -308,6 +352,17 @@ def test_malformed_catalogue_and_empty_agent_message_fail(isolated_settings):
     rpc = FakeRpc(text="")
     with pytest.raises(CodexProtocolError, match="without an agent message"):
         complete(CodexProvider(rpc))
+
+
+def test_malformed_json_from_app_server_unblocks_notification_waiter():
+    class Process:
+        stdout = io.StringIO("not-json\n")
+
+    rpc = CodexAppServer(binary="codex")
+    rpc._generation = 1
+    rpc._read_stdout(Process(), 1)
+    with pytest.raises(CodexProtocolError, match="Malformed app-server JSON"):
+        rpc.wait_notification(lambda _message: False, timeout=0.1)
 
 
 def test_timeout_is_reported_without_hidden_retry(isolated_settings):

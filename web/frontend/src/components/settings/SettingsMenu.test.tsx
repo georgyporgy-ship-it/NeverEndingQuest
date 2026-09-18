@@ -28,6 +28,13 @@ afterEach(() => {
 })
 
 describe('provider and voice settings behavior', () => {
+  it('does not contact Codex when another provider is selected', () => {
+    useDialogs.getState().setProvider({ provider: 'openai' })
+    render(<SettingsMenu />)
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+    expect(emitC).not.toHaveBeenCalledWith('get_codex_status', undefined)
+  })
+
   it('times out an unanswered endpoint probe and accepts a successful retry', () => {
     vi.useFakeTimers()
     useDialogs.getState().setProvider({ provider: 'lmstudio' })

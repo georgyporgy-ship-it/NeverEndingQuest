@@ -54,7 +54,6 @@ function LocalProviderPanelBody() {
     emitC('get_local_endpoint', undefined)
     emitC('get_openai_key', undefined)
     emitC('get_gemini_key', undefined)
-    emitC('get_codex_status', undefined)
   }, [])
 
   // ---- provider select (server confirms via provider_changed) ----
@@ -73,6 +72,10 @@ function LocalProviderPanelBody() {
 
   const storedProvider = settings.provider ?? 'legacy'
   const provider: string = pendingProvider ?? storedProvider
+
+  useEffect(() => {
+    if (provider === 'codex_oauth') emitC('get_codex_status', undefined)
+  }, [provider])
 
   const changeProvider = (value: string) => {
     if (!isProviderValue(value)) return

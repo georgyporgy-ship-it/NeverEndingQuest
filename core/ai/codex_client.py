@@ -175,9 +175,9 @@ class CodexAppServer:
                 try:
                     message = json.loads(line)
                 except json.JSONDecodeError as exc:
-                    self._fail_pending(
-                        CodexProtocolError(f"Malformed app-server JSON: {exc}")
-                    )
+                    error = CodexProtocolError(f"Malformed app-server JSON: {exc}")
+                    self._fail_pending(error)
+                    self._notifications.put({"_exception": error})
                     continue
                 if not isinstance(message, dict):
                     self._fail_pending(CodexProtocolError("App-server message was not an object"))
@@ -199,7 +199,9 @@ class CodexAppServer:
             if generation == self._generation:
                 detail = self.stderr_tail()
                 suffix = f": {detail}" if detail else ""
-                self._fail_pending(CodexTransportError(f"Codex app-server exited{suffix}"))
+                error = CodexTransportError(f"Codex app-server exited{suffix}")
+                self._fail_pending(error)
+                self._notifications.put({"_exception": error})
 
     def _read_stderr(self, process: subprocess.Popen[str], generation: int) -> None:
         assert process.stderr is not None
@@ -310,6 +312,9 @@ class CodexAppServer:
                     message = self._notifications.get(timeout=remaining)
                 except queue.Empty as exc:
                     raise CodexTimeoutError("Timed out waiting for Codex notification") from exc
+                notification_error = message.get("_exception")
+                if isinstance(notification_error, Exception):
+                    raise notification_error
                 if predicate(message):
                     return message
                 skipped.append(message)
@@ -619,7 +624,7 @@ class CodexProvider:
                 "input": [{"type": "text", "text": final_text, "text_elements": []}],
                 "model": selected,
                 "approvalPolicy": "never",
-                "sandboxPolicy": {"type": "readOnly", "access": {"type": "restricted", "includePlatformDefaults": True, "readableRoots": []}},
+                "sandboxPolicy": {"type": "readOnly", "access": {"type": "restricted", "includePlatformDefaults": False, "readableRoots": []}},
             }
             if effort:
                 turn_params["effort"] = effort

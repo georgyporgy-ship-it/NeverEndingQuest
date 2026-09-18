@@ -1512,6 +1512,13 @@ def select_codex_model(tier, models):
     if configured in available:
         return configured, None
 
+    if not configured:
+        account_default = next(
+            (item["id"] for item in models if item.get("is_default") is True),
+            next(iter(available)),
+        )
+        return account_default, None
+
     # Prefer another configured route from the nearest capability tier, with
     # a tie going upward. This retains the user's choices where possible.
     target = CODEX_TIERS.index(tier)

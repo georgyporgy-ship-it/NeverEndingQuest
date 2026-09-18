@@ -7342,6 +7342,7 @@
             function toggleCodexFields(p) {
                 const box = document.getElementById('codex-oauth-settings');
                 if (box) { box.style.display = (p === 'codex_oauth') ? 'block' : 'none'; }
+                if (p === 'codex_oauth') { socket.emit('get_codex_status'); }
                 const help = document.getElementById('openai-key-help');
                 if (help) {
                     const status = document.getElementById('openai-key-status-text');
@@ -7449,7 +7450,6 @@
                         fallback.style.display = f ? 'block' : 'none';
                     }
                 }
-                socket.emit('get_codex_status');
                 socket.on('codex_status', renderCodex);
                 socket.on('codex_login_started', function (d) {
                     var box = document.getElementById('codex-device-login');
