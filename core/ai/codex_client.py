@@ -518,7 +518,7 @@ class CodexProvider:
             return requested or model.get("default_reasoning_effort")
         if requested in supported:
             return requested
-        order = ["none", "minimal", "low", "medium", "high", "xhigh"]
+        order = ["none", "minimal", "low", "medium", "high", "xhigh", "max"]
         target = order.index(requested) if requested in order else order.index("medium")
         return min(supported, key=lambda item: abs(order.index(item) - target) if item in order else 99)
 

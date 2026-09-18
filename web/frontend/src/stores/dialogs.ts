@@ -212,7 +212,11 @@ export const useDialogs = create<DialogsState>((set) => ({
   setProvider: (payload) =>
     set((s) => ({ settings: { ...s.settings, provider: payload.provider } })),
   setCodexStatus: (payload) =>
-    set((s) => ({ settings: { ...s.settings, codexStatus: payload } })),
+    set((s) => ({ settings: {
+      ...s.settings,
+      codexStatus: payload,
+      codexLogin: payload.authenticated ? null : s.settings.codexLogin,
+    } })),
   setCodexLogin: (payload) =>
     set((s) => ({ settings: { ...s.settings, codexLogin: payload } })),
   setLocalEndpoint: (payload) =>

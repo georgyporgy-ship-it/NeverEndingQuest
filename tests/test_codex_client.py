@@ -377,11 +377,16 @@ def test_timeout_is_reported_without_hidden_retry(isolated_settings):
 
 
 def test_provider_switching_preserves_codex_routes(isolated_settings):
+    original = model_config.get_provider()
     routes = {tier: f"model-{tier}" for tier in model_config.CODEX_TIERS}
-    model_config.persist_codex_routing(routes=routes, auto_replace_unavailable=False)
-    model_config.persist_provider("openai")
-    model_config.persist_provider("codex_oauth")
-    assert model_config.get_codex_settings()["routes"] == routes
+    try:
+        model_config.persist_codex_routing(routes=routes, auto_replace_unavailable=False)
+        model_config.set_provider("codex_oauth")
+        model_config.set_provider("openai")
+        model_config.set_provider("codex_oauth")
+        assert model_config.get_codex_settings()["routes"] == routes
+    finally:
+        model_config.set_provider(original)
 
 
 @pytest.mark.parametrize("provider", ["openai", "legacy", "lmstudio"])
