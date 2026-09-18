@@ -480,10 +480,11 @@ def capture_and_fanout(task_id, primary_fn, messages, **kwargs):
             response, task_id, request_provider, requested_model
         )
 
-    # Local/Custom is a production runtime, not a capture-test source. Usage is
+    # Local/Custom and Codex OAuth are production runtimes, not capture-test
+    # sources. Selecting either must never fan out unrelated API-key calls. Usage is
     # still player-visible production accounting and must happen before this
     # capture-specific early return.
-    elif request_provider == "lmstudio":
+    elif request_provider in ("lmstudio", "codex_oauth"):
         response = _fire_primary_with_retry(primary_fn, messages, kwargs, task_id)
         _track_module_primary(
             response, task_id, request_provider, requested_model

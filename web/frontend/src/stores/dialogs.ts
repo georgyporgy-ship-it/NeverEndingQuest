@@ -55,6 +55,8 @@ export interface ModuleOperationState {
 /** Local-edition operator settings payloads (VITE_EDITION=local). */
 export interface ProviderSettings {
   provider: string | null
+  codexStatus: ServerEvents['codex_status'] | null
+  codexLogin: ServerEvents['codex_login_started'] | null
   localEndpoint: ServerEvents['local_endpoint_changed'] | null
   openaiHasKey: boolean | null
   geminiHasKey: boolean | null
@@ -88,6 +90,8 @@ export interface DialogsState {
   memoryUpgradeProgress: (payload: ServerEvents['episodic_upgrade_progress']) => void
   memoryUpgradeComplete: (payload: ServerEvents['episodic_upgrade_complete']) => void
   setProvider: (payload: ServerEvents['provider_changed']) => void
+  setCodexStatus: (payload: ServerEvents['codex_status']) => void
+  setCodexLogin: (payload: ServerEvents['codex_login_started']) => void
   setLocalEndpoint: (payload: ServerEvents['local_endpoint_changed']) => void
   setOpenaiKeyStatus: (payload: ServerEvents['openai_key_status']) => void
   setGeminiKeyStatus: (payload: ServerEvents['gemini_key_status']) => void
@@ -121,6 +125,8 @@ export const useDialogs = create<DialogsState>((set) => ({
   compression: idleCompression,
   settings: {
     provider: null,
+    codexStatus: null,
+    codexLogin: null,
     localEndpoint: null,
     openaiHasKey: null,
     geminiHasKey: null,
@@ -205,6 +211,10 @@ export const useDialogs = create<DialogsState>((set) => ({
     })),
   setProvider: (payload) =>
     set((s) => ({ settings: { ...s.settings, provider: payload.provider } })),
+  setCodexStatus: (payload) =>
+    set((s) => ({ settings: { ...s.settings, codexStatus: payload } })),
+  setCodexLogin: (payload) =>
+    set((s) => ({ settings: { ...s.settings, codexLogin: payload } })),
   setLocalEndpoint: (payload) =>
     set((s) => ({ settings: { ...s.settings, localEndpoint: payload } })),
   setOpenaiKeyStatus: (payload) =>

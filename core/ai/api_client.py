@@ -318,7 +318,8 @@ def get_client():
 def create_completion(messages, model, temperature=None, retry_attempt=0, **kwargs):
     """Provider-aware completion wrapper -- thin routing layer.
 
-    Routes to OpenAI, Gemini, or LM Studio based on MODEL_PROVIDER.
+    Routes to OpenAI, Gemini, LM Studio, or isolated Codex OAuth based on
+    MODEL_PROVIDER.
     Returns an OpenAI-shaped response regardless of provider.
 
     This wrapper does exactly two things:
@@ -360,6 +361,15 @@ def create_completion(messages, model, temperature=None, retry_attempt=0, **kwar
     kwargs.pop("top_p", None)
     _response_format = kwargs.pop("response_format", _UNSET)
 
+    if request_provider == "codex_oauth":
+        # Callsite API-provider choices must never leak into Codex. Resolve the
+        # independent Codex tier at this central boundary, including callers
+        # whose local provider branch selected a legacy config dictionary.
+        codex_config = model_config.codex_callsite_config(task_id)
+        model = codex_config["model"]
+        kwargs["codex_tier"] = codex_config["codex_tier"]
+        kwargs["reasoning_effort"] = codex_config["reasoning_effort"]
+
     # create_completion() is a thin routing layer. It does NOT inject
     # reasoning_effort, thinking_level, or other params. The callsite
     # owns its parameters via named config dicts in model_config.py.
@@ -370,6 +380,35 @@ def create_completion(messages, model, temperature=None, retry_attempt=0, **kwar
     # --- Route to provider, then expose one response/error contract ---
     repaired = None
     try:
+        if request_provider == "codex_oauth":
+            from core.ai.codex_client import get_codex_provider
+
+            tier = kwargs.pop("codex_tier", "balanced")
+            effort = kwargs.pop("reasoning_effort", None)
+            timeout = kwargs.pop("timeout", None)
+            # Gemini-only schema objects use a different dialect and are never
+            # forwarded. Strict JSON Schema is carried in response_format.
+            kwargs.pop("response_schema", None)
+            kwargs.pop("thinking_level", None)
+            result = get_codex_provider().complete(
+                messages=messages,
+                tier=tier,
+                reasoning_effort=effort,
+                response_format=None if _response_format is _UNSET else _response_format,
+                response_format_provided=_response_format is not _UNSET,
+                timeout=timeout,
+            )
+            return _NormalizedResponse(
+                result["content"],
+                result.get("usage") or {},
+                model=result.get("model") or model,
+                response_id=result.get("id") or "",
+                finish_reason=result.get("finish_reason") or "stop",
+                provider=request_provider,
+                task_id=task_id,
+                raw_response=result.get("raw_response"),
+                usage_invocation_id=usage_invocation_id,
+            )
         if request_provider in ("legacy", "openai", "lmstudio"):
             try:
                 raw_response = _openai_completion(

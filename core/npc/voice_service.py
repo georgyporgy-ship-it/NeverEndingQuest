@@ -22,6 +22,7 @@ from core.npc.voice_contracts import (
     PROMPT_VERSION,
     RESPONSE_SCHEMA_VERSION,
     TASK_ID,
+    VOICE_RESPONSE_SCHEMA,
     ThoughtContractError,
     canonical_json,
     gemini_response_schema,
@@ -379,7 +380,17 @@ def _config_for_provider(provider: str) -> Dict[str, Any]:
     # OpenAI/legacy use plain JSON mode plus client-side response validation.
     # Gemini needs response_schema or it silently drops the enriched fields
     # (T014-class bug). Never attach response_schema on the OpenAI path (400).
-    if provider == "openai":
+    if provider == "codex_oauth":
+        selected = model_config.codex_callsite_config("T105")
+        selected["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "t105_npc_voice",
+                "strict": True,
+                "schema": copy.deepcopy(VOICE_RESPONSE_SCHEMA),
+            },
+        }
+    elif provider == "openai":
         selected = copy.deepcopy(model_config.NPC_VOICE_T105_OPENAI_LUNA_NONE)
         selected["response_format"] = {"type": "json_object"}
     elif provider == "gemini":

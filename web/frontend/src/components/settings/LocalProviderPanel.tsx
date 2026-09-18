@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { emitC } from '../../services/socket'
 import { useDialogs } from '../../stores'
-import type { ClientEvents } from '../../contract/events'
+import type { ClientEvents, CodexStatus } from '../../contract/events'
 
 type ProviderValue = ClientEvents['set_model_provider']['provider']
 
@@ -10,6 +10,7 @@ const PROVIDER_OPTIONS: Array<{ value: ProviderValue; label: string }> = [
   { value: 'openai', label: 'OpenAI (GPT-5.x) - Next-gen, tested per task' },
   { value: 'gemini', label: 'Gemini 3.1 - Alternative provider, tested per task' },
   { value: 'lmstudio', label: 'Local / Custom Server (LM Studio, Ollama, OpenRouter...)' },
+  { value: 'codex_oauth', label: 'ChatGPT / Codex OAuth' },
 ]
 
 const PROVIDER_HINTS: Record<ProviderValue, string> = {
@@ -18,6 +19,14 @@ const PROVIDER_HINTS: Record<ProviderValue, string> = {
   gemini: 'Gemini 3.1: alternative cloud provider, tested per task. Requires a Google API key.',
   lmstudio:
     'Local / Custom Server: point at any OpenAI-compatible server below. Zero cost when local.',
+  codex_oauth:
+    'ChatGPT / Codex OAuth: uses models available to your ChatGPT-authenticated Codex account, not an OpenAI API key.',
+}
+
+const CODEX_TIERS = ['cheap', 'balanced', 'strong', 'premium'] as const
+type CodexTier = typeof CODEX_TIERS[number]
+const EMPTY_CODEX_ROUTES: CodexStatus['routes'] = {
+  cheap: '', balanced: '', strong: '', premium: '',
 }
 
 const inputClass = 'neq-settings-select-parity'
@@ -45,6 +54,7 @@ function LocalProviderPanelBody() {
     emitC('get_local_endpoint', undefined)
     emitC('get_openai_key', undefined)
     emitC('get_gemini_key', undefined)
+    emitC('get_codex_status', undefined)
   }, [])
 
   // ---- provider select (server confirms via provider_changed) ----
@@ -134,6 +144,25 @@ function LocalProviderPanelBody() {
 
   const keyStatusText = (hasKey: boolean | null) =>
     hasKey === null ? '' : hasKey ? ' (a key is set)' : ' (no key set)'
+
+  // ---- Codex-managed ChatGPT authentication and independent routing ----
+  const codex = settings.codexStatus
+  const [codexRoutes, setCodexRoutes] = useState<CodexStatus['routes']>(EMPTY_CODEX_ROUTES)
+  const [autoReplace, setAutoReplace] = useState(true)
+  useEffect(() => {
+    if (!codex) return
+    setCodexRoutes(codex.routes)
+    setAutoReplace(codex.auto_replace_unavailable)
+  }, [codex])
+  useEffect(() => {
+    if (!settings.codexLogin || codex?.authenticated) return undefined
+    const timer = window.setInterval(() => emitC('get_codex_status', undefined), 3000)
+    return () => window.clearInterval(timer)
+  }, [settings.codexLogin, codex?.authenticated])
+  const codexModels = codex?.models?.length ? codex.models : (codex?.cached_models ?? [])
+  const updateCodexRoute = (tier: CodexTier, value: string) => {
+    setCodexRoutes((current) => ({ ...current, [tier]: value }))
+  }
 
   return (
     <div>
@@ -233,10 +262,93 @@ function LocalProviderPanelBody() {
         </div>
       )}
 
+      {provider === 'codex_oauth' && (
+        <div className={sectionClass}>
+          <div className={sectionTitleClass}>ChatGPT / Codex OAuth</div>
+          <p className="neq-settings-help-parity">
+            Codex app-server owns sign-in, credential storage, and token refresh. NeverEndingQuest
+            does not copy ChatGPT credentials into its API-key settings.
+          </p>
+          <div className="neq-settings-item neq-settings-stack-parity">
+            <p role="status" className="neq-settings-status-parity">
+              Status: {!codex ? 'Checking...'
+                : !codex.installed ? 'Codex CLI not installed'
+                : codex.authenticated ? `Signed in${codex.email ? ` as ${codex.email}` : ''}`
+                : 'Not signed in'}
+            </p>
+            {codex?.error && <p role="alert" className="neq-settings-status-parity">{codex.error}</p>}
+            <div className="neq-settings-button-row-parity">
+              {!codex?.authenticated ? (
+                <button type="button" className={smallButtonClass} onClick={() => emitC('codex_login', undefined)}>
+                  Sign in with ChatGPT
+                </button>
+              ) : (
+                <button type="button" className={smallButtonClass} onClick={() => emitC('codex_logout', undefined)}>
+                  Sign out
+                </button>
+              )}
+              <button type="button" className={smallButtonClass} onClick={() => emitC('get_codex_status', undefined)}>
+                Reconnect / Check Status
+              </button>
+              <button type="button" className={smallButtonClass} onClick={() => emitC('refresh_codex_models', undefined)} disabled={!codex?.authenticated}>
+                Refresh Models
+              </button>
+            </div>
+            {settings.codexLogin && !codex?.authenticated && (
+              <p className="neq-settings-help-parity">
+                Open <a href={settings.codexLogin.verification_url} target="_blank" rel="noreferrer">{settings.codexLogin.verification_url}</a>
+                {' '}and enter code <strong>{settings.codexLogin.user_code}</strong>.
+              </p>
+            )}
+            {CODEX_TIERS.map((tier) => {
+              const selected = codexRoutes[tier]
+              const available = !selected || codexModels.some((item) => item.id === selected)
+              return (
+                <div key={tier} className="neq-settings-provider-row-parity">
+                  <label htmlFor={`codex-${tier}-model`}>{tier[0].toUpperCase() + tier.slice(1)} tasks</label>
+                  <select
+                    id={`codex-${tier}-model`}
+                    className={inputClass}
+                    value={selected}
+                    onChange={(event) => updateCodexRoute(tier, event.target.value)}
+                  >
+                    <option value="">Automatic (account default)</option>
+                    {!available && <option value={selected}>{selected} (unavailable)</option>}
+                    {codexModels.map((item) => (
+                      <option key={item.id} value={item.id}>{item.display_name}</option>
+                    ))}
+                  </select>
+                </div>
+              )
+            })}
+            <label>
+              <input type="checkbox" checked={autoReplace} onChange={(event) => setAutoReplace(event.target.checked)} />
+              {' '}Automatically replace unavailable models
+            </label>
+            <button
+              type="button"
+              className={smallButtonClass}
+              onClick={() => emitC('set_codex_routing', { routes: codexRoutes, auto_replace_unavailable: autoReplace })}
+              disabled={!codex?.authenticated}
+            >
+              Save Codex Routing
+            </button>
+            {codex?.last_fallback && (
+              <p className="neq-settings-help-parity">
+                {codex.last_fallback.unavailable_model} is unavailable for {codex.last_fallback.tier} tasks.
+                Using {codex.last_fallback.replacement_model}.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className={sectionClass}>
         <div className={sectionTitleClass}>OpenAI API Key</div>
         <p className="neq-settings-help-parity">
-          Needed for the Legacy and OpenAI providers. Stored locally on this machine.
+          {provider === 'codex_oauth'
+            ? 'Optional while Codex is selected. OpenAI TTS and image generation still use this separate API key.'
+            : 'Needed for the Legacy and OpenAI providers. Stored locally on this machine.'}
           <span>{keyStatusText(settings.openaiHasKey)}</span>
         </p>
         <div className="neq-settings-item neq-settings-stack-parity"><input

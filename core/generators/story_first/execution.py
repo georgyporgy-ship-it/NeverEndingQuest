@@ -211,7 +211,7 @@ def production_completion_gateway(request: StructuredRequest) -> CompletionPaylo
     from utils.capture.multi_model_capture import capture_and_fanout
 
     call_options = mutable_copy(request.model_options)
-    if request.provider in {"openai", "lmstudio"}:
+    if request.provider in {"openai", "lmstudio", "codex_oauth"}:
         call_options["response_format"] = {
             "type": "json_schema",
             "json_schema": {

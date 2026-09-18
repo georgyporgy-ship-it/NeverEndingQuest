@@ -2163,7 +2163,7 @@ Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
             # get prompt-enforced json_object (validated + retried by the code below).
             schema = nc.coherence_response_schema()
             extra = {k: v for k, v in cfg.items() if k != "model"}
-            if provider in ("openai", "legacy"):
+            if provider in ("openai", "legacy", "codex_oauth"):
                 response_format = {"type": "json_schema", "json_schema": {
                     "name": "t104_npc_coherence", "strict": True, "schema": schema}}
             elif provider == "gemini":
@@ -2781,7 +2781,10 @@ Return ONLY the JSON object, no explanations or additional text.""" % (
     # Select model config per provider (before retry loop)
     from model_config import MODEL_PROVIDER
 
-    if MODEL_PROVIDER == "openai":
+    if MODEL_PROVIDER == "codex_oauth":
+        from model_config import resolve_callsite_config
+        summ_config = resolve_callsite_config("T030", MODEL_PROVIDER)
+    elif MODEL_PROVIDER == "openai":
         summ_config = config.DM_SUMM_GPT54MINI_NONE
     elif MODEL_PROVIDER == "gemini":
         summ_config = config.DM_SUMM_GEMINI_FLASH_LOW
@@ -2796,7 +2799,7 @@ Return ONLY the JSON object, no explanations or additional text.""" % (
     _extra = {k: v for k, v in summ_config.items() if k != "model"}
     if MODEL_PROVIDER == "gemini":
         _extra["response_schema"] = _module_spec_gemini_schema(resolved_policy)
-    elif MODEL_PROVIDER in {"openai", "legacy"}:
+    elif MODEL_PROVIDER in {"openai", "legacy", "codex_oauth"}:
         _extra["response_format"] = {
             "type": "json_schema",
             "json_schema": {

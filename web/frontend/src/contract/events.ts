@@ -60,7 +60,29 @@ export type PlayerDataResponse =
       server_instance_id?: string;
     };
 
-// ---------- client -> server (31) ----------
+export interface CodexModel {
+  id: string;
+  display_name: string;
+  supported_reasoning_efforts: string[];
+  default_reasoning_effort?: string | null;
+  is_default: boolean;
+}
+
+export interface CodexStatus {
+  installed: boolean;
+  authenticated: boolean;
+  email?: string | null;
+  plan_type?: string | null;
+  models: CodexModel[];
+  cached_models?: CodexModel[];
+  cached_at?: number | null;
+  routes: Record<'cheap' | 'balanced' | 'strong' | 'premium', string>;
+  auto_replace_unavailable: boolean;
+  last_fallback?: { tier: string; unavailable_model: string; replacement_model: string } | null;
+  error?: string | null;
+}
+
+// ---------- client -> server (36) ----------
 export interface ClientEvents {
   user_input: { input: string };
   action: {
@@ -85,7 +107,12 @@ export interface ClientEvents {
   request_module_list: undefined;
   // --- local-edition operator settings (hidden when VITE_EDITION=hosted) ---
   get_model_provider: undefined;
-  set_model_provider: { provider: 'legacy' | 'openai' | 'gemini' | 'lmstudio' };
+  set_model_provider: { provider: 'legacy' | 'openai' | 'gemini' | 'lmstudio' | 'codex_oauth' };
+  get_codex_status: undefined;
+  codex_login: undefined;
+  codex_logout: undefined;
+  refresh_codex_models: undefined;
+  set_codex_routing: { routes: CodexStatus['routes']; auto_replace_unavailable: boolean };
   get_local_endpoint: undefined;
   set_local_endpoint: { base_url: string; api_key?: string; model: string };
   get_openai_key: undefined;
@@ -128,6 +155,11 @@ export const CLIENT_EVENT_ARITY = {
   request_module_list: 0,
   get_model_provider: 0,
   set_model_provider: 1,
+  get_codex_status: 0,
+  codex_login: 0,
+  codex_logout: 0,
+  refresh_codex_models: 0,
+  set_codex_routing: 1,
   get_local_endpoint: 0,
   set_local_endpoint: 1,
   get_openai_key: 0,
@@ -142,7 +174,7 @@ export const CLIENT_EVENT_ARITY = {
   trigger_update: 0,
 } as const satisfies Record<keyof ClientEvents, 0 | 1>;
 
-// ---------- server -> client (56) ----------
+// ---------- server -> client (58) ----------
 export interface RestoreResult {
   message: string;
   pending?: boolean;
@@ -197,6 +229,8 @@ export interface ServerEvents {
   map_data_response: { data: MapDataPayload | null; error?: string; request_id?: string; revision?: number; server_instance_id?: string };
   exit_acknowledged: { message: string };
   provider_changed: { provider: string };
+  codex_status: CodexStatus;
+  codex_login_started: { login_id?: string | null; verification_url: string; user_code: string };
   local_endpoint_changed: { base_url: string; model: string; has_key: boolean };
   openai_key_status: { has_key: boolean };
   gemini_key_status: { has_key: boolean };

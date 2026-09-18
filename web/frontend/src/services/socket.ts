@@ -262,6 +262,8 @@ on('module_creation_progress', (p) => useDialogs.getState().moduleProgress(p))
 
 // ---------- local-edition operator settings (VITE_EDITION=local) ----------
 on('provider_changed', (p) => useDialogs.getState().setProvider(p))
+on('codex_status', (p) => useDialogs.getState().setCodexStatus(p))
+on('codex_login_started', (p) => useDialogs.getState().setCodexLogin(p))
 on('local_endpoint_changed', (p) => useDialogs.getState().setLocalEndpoint(p))
 on('openai_key_status', (p) => useDialogs.getState().setOpenaiKeyStatus(p))
 on('gemini_key_status', (p) => useDialogs.getState().setGeminiKeyStatus(p))

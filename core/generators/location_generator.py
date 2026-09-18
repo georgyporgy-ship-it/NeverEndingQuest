@@ -525,7 +525,7 @@ def _t026_request_options(
         key: value for key, value in main_cfg.items() if key != "model"
     }
 
-    if provider in {"openai", "legacy"}:
+    if provider in {"openai", "legacy", "codex_oauth"}:
         response_format = {
             "type": "json_schema",
             "json_schema": {

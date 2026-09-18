@@ -1079,9 +1079,10 @@ MULTI_MODEL_CAPTURE = False  # Set True to enable parallel cloud model testing (
 # DEFAULT: "openai" -- the current, cost-optimized GPT-5.x callsite matrix
 #   (gpt-5.6-luna / terra, with gpt-5.4 and gpt-5.2 retained where they win).
 #   Set to "legacy" to run the stable gpt-4.1 / gpt-4.1-mini baseline instead;
-#   "gemini" and "lmstudio" are also available. Switchable at runtime via
+#   "gemini", "lmstudio", and the isolated "codex_oauth" adapter are also
+#   available. Switchable at runtime via
 #   Settings -> AI Provider (persists in user_settings.json).
-MODEL_PROVIDER = "openai"  # options: "openai" (default), "legacy", "gemini", "lmstudio"
+MODEL_PROVIDER = "openai"  # options: "openai" (default), "legacy", "gemini", "lmstudio", "codex_oauth"
 
 PROVIDER_MODELS = {
     "legacy": {
@@ -1100,6 +1101,44 @@ PROVIDER_MODELS = {
         "full": "local-model",
         "mini": "local-model",
     },
+    # Abstract tokens only. The Codex adapter resolves these through the live
+    # account catalogue and its independent tier routing table.
+    "codex_oauth": {
+        "full": "codex-tier:strong",
+        "mini": "codex-tier:cheap",
+    },
+}
+
+CODEX_TIERS = ("cheap", "balanced", "strong", "premium")
+CODEX_TIER_EFFORTS = {
+    "cheap": "low",
+    "balanced": "medium",
+    "strong": "high",
+    "premium": "high",
+}
+
+# This map is intentionally separate from the carefully evaluated API-provider
+# registry. Unknown and lightweight callsites default to cheap; only callsites
+# whose game role benefits from more capability are promoted here.
+CODEX_TASK_TIERS = {
+    "T040": "premium",  # strict state/combat verdict
+    "T065": "premium",  # main response validator
+    "T067": "premium",  # main DM turn
+    "T026": "strong",   # location generation
+    "T104": "strong",   # module specification
+    "T105": "strong",   # NPC voice
+    "T107": "strong",   # NPC profile
+    "T114": "strong",   # party guardian
+    "T116": "strong",
+    "T118": "strong",
+    "T120": "strong",
+    "T079": "balanced", # character update
+    "T108": "balanced", # episodic extraction
+    "T112": "balanced", # episodic recall
+    "T113": "balanced", # episodic backfill
+    "T115": "balanced",
+    "T117": "balanced",
+    "T119": "balanced",
 }
 
 # Per-callsite model variable overrides by provider.
@@ -1364,6 +1403,157 @@ def persist_local_endpoint(base_url="", api_key=None, model=""):
         _store_credential("local_api_key", api_key)
 
 
+def get_codex_settings():
+    """Return non-secret Codex routing and cached discovery metadata.
+
+    OAuth credentials never enter this file. They remain entirely under the
+    Codex app-server's managed authentication lifecycle.
+    """
+    settings = _load_user_settings()
+    stored_routes = settings.get("codex_routes")
+    routes = {tier: "" for tier in CODEX_TIERS}
+    if isinstance(stored_routes, dict):
+        for tier in CODEX_TIERS:
+            value = stored_routes.get(tier)
+            if isinstance(value, str):
+                routes[tier] = value.strip()
+    cached = settings.get("codex_cached_models")
+    if not isinstance(cached, list):
+        cached = []
+    return {
+        "routes": routes,
+        "auto_replace_unavailable": settings.get(
+            "codex_auto_replace_unavailable", True
+        ) is not False,
+        "cached_models": copy.deepcopy(cached),
+        "cached_at": settings.get("codex_cached_at"),
+        "last_fallback": copy.deepcopy(settings.get("codex_last_fallback")),
+    }
+
+
+def persist_codex_routing(routes=None, auto_replace_unavailable=None):
+    """Persist only Codex-specific model routing preferences."""
+    settings = _load_user_settings()
+    current = get_codex_settings()
+    next_routes = current["routes"]
+    if routes is not None:
+        if not isinstance(routes, dict):
+            raise ValueError("Codex routes must be an object")
+        next_routes = {}
+        for tier in CODEX_TIERS:
+            value = routes.get(tier, "")
+            if not isinstance(value, str):
+                raise ValueError("Codex route %s must be a string" % tier)
+            next_routes[tier] = value.strip()
+    settings["codex_routes"] = next_routes
+    if auto_replace_unavailable is not None:
+        settings["codex_auto_replace_unavailable"] = bool(
+            auto_replace_unavailable
+        )
+    _save_user_settings(settings)
+    return get_codex_settings()
+
+
+def cache_codex_models(models):
+    """Cache the public catalogue for UI convenience, never as authority."""
+    clean = []
+    if isinstance(models, list):
+        for entry in models:
+            if not isinstance(entry, dict) or not isinstance(entry.get("id"), str):
+                continue
+            clean.append({
+                "id": entry["id"],
+                "display_name": entry.get("display_name") or entry["id"],
+                "supported_reasoning_efforts": list(
+                    entry.get("supported_reasoning_efforts") or []
+                ),
+                "default_reasoning_effort": entry.get("default_reasoning_effort"),
+                "is_default": entry.get("is_default") is True,
+            })
+    settings = _load_user_settings()
+    settings["codex_cached_models"] = clean
+    settings["codex_cached_at"] = int(__import__("time").time())
+    _save_user_settings(settings)
+
+
+def codex_tier_for_task(task_id):
+    return CODEX_TASK_TIERS.get(task_id, "cheap")
+
+
+def codex_callsite_config(task_id):
+    tier = codex_tier_for_task(task_id)
+    return {
+        "model": "codex-tier:%s" % tier,
+        "codex_tier": tier,
+        "reasoning_effort": CODEX_TIER_EFFORTS[tier],
+    }
+
+
+def select_codex_model(tier, models):
+    """Select a configured live model or the nearest stable fallback.
+
+    New models never replace healthy routes. Substitution happens only when a
+    configured model disappears. The account default is used for unconfigured
+    tiers, keeping installation defaults dynamic rather than hardcoded.
+    """
+    if tier not in CODEX_TIERS:
+        tier = "balanced"
+    if not isinstance(models, list) or not models:
+        raise ValueError("No Codex models are available")
+    available = {
+        item.get("id"): item
+        for item in models
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    }
+    if not available:
+        raise ValueError("No valid Codex models are available")
+    codex = get_codex_settings()
+    configured = codex["routes"].get(tier, "")
+    if configured in available:
+        return configured, None
+
+    # Prefer another configured route from the nearest capability tier, with
+    # a tie going upward. This retains the user's choices where possible.
+    target = CODEX_TIERS.index(tier)
+    ranked_tiers = sorted(
+        CODEX_TIERS,
+        key=lambda candidate: (
+            abs(CODEX_TIERS.index(candidate) - target),
+            -CODEX_TIERS.index(candidate),
+        ),
+    )
+    fallback = None
+    for candidate_tier in ranked_tiers:
+        candidate = codex["routes"].get(candidate_tier, "")
+        if candidate in available:
+            fallback = candidate
+            break
+    if fallback is None:
+        fallback = next(
+            (item["id"] for item in models if item.get("is_default") is True),
+            next(iter(available)),
+        )
+
+    warning = None
+    if configured:
+        warning = (
+            "The configured Codex model '%s' for %s tasks is unavailable; "
+            "using '%s'." % (configured, tier, fallback)
+        )
+        settings = _load_user_settings()
+        settings["codex_last_fallback"] = {
+            "tier": tier,
+            "unavailable_model": configured,
+            "replacement_model": fallback,
+        }
+        if codex["auto_replace_unavailable"]:
+            routes = dict(codex["routes"])
+            routes[tier] = fallback
+            settings["codex_routes"] = routes
+        _save_user_settings(settings)
+    return fallback, warning
+
+
 _OPENAI_KEY_PLACEHOLDER = "your_openai_api_key_here"
 
 
@@ -1489,6 +1679,16 @@ def validate_model_registry():
 def resolve_callsite_config(task_id, provider=None, attempt=0):
     """Return a detached provider configuration for one zero-based attempt."""
     provider = provider or get_provider()
+    if provider == "codex_oauth":
+        # Codex has a separate dynamic catalogue and tier matrix. Never feed its
+        # account-dependent models into the static API-provider registry.
+        try:
+            attempt_index = int(attempt)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("attempt must be a non-negative integer") from exc
+        if attempt_index < 0:
+            raise ValueError("attempt must be a non-negative integer")
+        return copy.deepcopy(codex_callsite_config(task_id))
     try:
         binding = CALLSITE_BINDINGS[task_id]
     except KeyError as exc:

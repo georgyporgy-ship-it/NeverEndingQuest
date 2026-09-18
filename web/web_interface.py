@@ -180,6 +180,19 @@ app.config.update(PLAYER_UI='react', TOOLKIT_ONLY=False)
 socketio = SocketIO(app, cors_allowed_origins=None)
 
 
+def _emit_codex_warning(message):
+    """Surface model retirement fallback without exposing protocol details."""
+    socketio.emit('system_message', {'content': message})
+
+
+try:
+    from core.ai.codex_client import get_codex_provider
+    get_codex_provider().set_warning_callback(_emit_codex_warning)
+except Exception:
+    # Import-time setup must not make Codex a dependency for other providers.
+    pass
+
+
 @app.before_request
 def require_operator_token_for_network_mode():
     """Protect every HTTP route whenever the operator explicitly enables LAN use."""
@@ -2370,6 +2383,12 @@ def _provider_credentials_available(provider):
 
     if provider == "lmstudio":
         return True
+    if provider == "codex_oauth":
+        try:
+            from core.ai.codex_client import get_codex_provider
+            return bool(get_codex_provider().account(refresh=False).get("authenticated"))
+        except Exception:
+            return False
     if provider in ("legacy", "openai"):
         key = getattr(config, "OPENAI_API_KEY", "")
         placeholder = "your_openai_api_key_here"
@@ -2414,17 +2433,10 @@ def promote_to_bestiary():
         
         from model_config import get_provider
         provider_snapshot = get_provider()
-        import config
-        if provider_snapshot == "openai":
-            mini_cfg = config.MINI_UTIL_GPT54MINI_NONE
-        elif provider_snapshot == "gemini":
-            mini_cfg = config.MINI_UTIL_GEMINI_FLASH_LOW
-        elif provider_snapshot == "lmstudio":
-            mini_cfg = config.MINI_UTIL_LMSTUDIO
-        elif provider_snapshot == "legacy":
-            mini_cfg = config.MINI_UTIL_LEGACY
-        else:
-            raise ValueError(f"Unsupported model provider: {provider_snapshot}")
+        import model_config
+        mini_cfg = model_config.resolve_callsite_config(
+            "T094", provider_snapshot
+        )
 
         response = capture_and_fanout("T094", api_client.create_completion,
             _request_provider=provider_snapshot,
@@ -4428,6 +4440,81 @@ def handle_set_provider(data):
         emit('error', {'message': f"Failed to set provider: {str(e)}"})
 
 
+def _codex_status_payload(refresh_models=False):
+    import model_config
+    from core.ai.codex_client import get_codex_provider
+
+    status = get_codex_provider().status(refresh_models=refresh_models)
+    settings = model_config.get_codex_settings()
+    # If a live refresh found retired routes, select_codex_model records and,
+    # when enabled, repairs only those missing routes.
+    if refresh_models and status.get('models'):
+        for tier in model_config.CODEX_TIERS:
+            model_config.select_codex_model(tier, status['models'])
+        settings = model_config.get_codex_settings()
+    status.update({
+        'routes': settings['routes'],
+        'auto_replace_unavailable': settings['auto_replace_unavailable'],
+        'cached_models': settings['cached_models'],
+        'cached_at': settings['cached_at'],
+        'last_fallback': settings['last_fallback'],
+    })
+    return status
+
+
+@socketio.on('get_codex_status')
+def handle_get_codex_status():
+    """Return account and model status. Credentials/tokens are never exposed."""
+    emit('codex_status', _codex_status_payload(refresh_models=False))
+
+
+@socketio.on('codex_login')
+def handle_codex_login():
+    try:
+        from core.ai.codex_client import get_codex_provider
+        emit('codex_login_started', get_codex_provider().begin_device_login())
+    except Exception as exc:
+        emit('codex_status', {**_codex_status_payload(False), 'error': str(exc)})
+
+
+@socketio.on('codex_logout')
+def handle_codex_logout():
+    try:
+        from core.ai.codex_client import get_codex_provider
+        get_codex_provider().logout()
+        emit('codex_status', _codex_status_payload(False))
+    except Exception as exc:
+        emit('codex_status', {**_codex_status_payload(False), 'error': str(exc)})
+
+
+@socketio.on('refresh_codex_models')
+def handle_refresh_codex_models():
+    emit('codex_status', _codex_status_payload(refresh_models=True))
+
+
+@socketio.on('set_codex_routing')
+def handle_set_codex_routing(data):
+    try:
+        import model_config
+        data = data or {}
+        routes = data.get('routes') or {}
+        status = _codex_status_payload(refresh_models=True)
+        available = {item.get('id') for item in status.get('models', [])}
+        for tier in model_config.CODEX_TIERS:
+            selected = routes.get(tier, '')
+            if selected and selected not in available:
+                raise ValueError(
+                    f"Codex model '{selected}' is not currently available"
+                )
+        model_config.persist_codex_routing(
+            routes=routes,
+            auto_replace_unavailable=data.get('auto_replace_unavailable', True),
+        )
+        emit('codex_status', _codex_status_payload(False))
+    except Exception as exc:
+        emit('error', {'message': f"Failed to save Codex routing: {exc}"})
+
+
 @socketio.on('get_local_endpoint')
 def handle_get_local_endpoint():
     """Report the Local/Custom endpoint for UI sync. Never returns the raw key."""
@@ -5365,17 +5452,10 @@ def _run_npc_description_job(
                 f"{provider_snapshot} provider credentials are not configured"
             )
 
-        import config
-        if provider_snapshot == "openai":
-            mini_cfg = config.MINI_UTIL_GPT54MINI_NONE
-        elif provider_snapshot == "gemini":
-            mini_cfg = config.MINI_UTIL_GEMINI_FLASH_LOW
-        elif provider_snapshot == "lmstudio":
-            mini_cfg = config.MINI_UTIL_LMSTUDIO
-        elif provider_snapshot == "legacy":
-            mini_cfg = config.MINI_UTIL_LEGACY
-        else:
-            raise ValueError(f"Unsupported model provider: {provider_snapshot}")
+        import model_config
+        mini_cfg = model_config.resolve_callsite_config(
+            "T095", provider_snapshot
+        )
         module_context = extract_module_context_for_npcs(module_name)
 
         for index, npc_data in enumerate(npcs):

@@ -4471,6 +4471,7 @@
                                     <option value="openai">OpenAI (GPT-5.x) - Next-gen, tested per task</option>
                                     <option value="gemini">Gemini 3.1 - Alternative provider, tested per task</option>
                                     <option value="lmstudio">Local / Custom Server (LM Studio, Ollama, OpenRouter...)</option>
+                                    <option value="codex_oauth">ChatGPT / Codex OAuth</option>
                                 </select>
                             </div>
                             <div class="settings-help settings-provider-help" id="provider-help-text">
@@ -4504,9 +4505,40 @@
                         </div>
                     </div>
 
+                    <div class="settings-section" id="codex-oauth-settings" style="display:none;">
+                        <div class="settings-section-title">ChatGPT / Codex OAuth</div>
+                        <div class="settings-help">
+                            Codex app-server owns ChatGPT sign-in, credential storage, and token refresh.
+                            NeverEndingQuest does not store these credentials as an OpenAI API key.
+                        </div>
+                        <div class="settings-item" style="flex-direction:column; align-items:stretch; gap:8px;">
+                            <div id="codex-status-text">Status: Checking...</div>
+                            <div id="codex-error-text" style="display:none; color:#c62828;"></div>
+                            <div style="display:flex; flex-wrap:wrap; gap:8px;">
+                                <button class="settings-btn" id="codex-login-btn">Sign in with ChatGPT</button>
+                                <button class="settings-btn" id="codex-logout-btn" style="display:none;">Sign out</button>
+                                <button class="settings-btn" id="codex-reconnect-btn">Reconnect / Check Status</button>
+                                <button class="settings-btn" id="codex-refresh-btn">Refresh Models</button>
+                            </div>
+                            <div id="codex-device-login" class="settings-help" style="display:none;"></div>
+                            <label for="codex-cheap-model">Cheap tasks</label>
+                            <select class="settings-select codex-route-select" id="codex-cheap-model" data-tier="cheap"></select>
+                            <label for="codex-balanced-model">Balanced tasks</label>
+                            <select class="settings-select codex-route-select" id="codex-balanced-model" data-tier="balanced"></select>
+                            <label for="codex-strong-model">Strong tasks</label>
+                            <select class="settings-select codex-route-select" id="codex-strong-model" data-tier="strong"></select>
+                            <label for="codex-premium-model">Premium tasks</label>
+                            <select class="settings-select codex-route-select" id="codex-premium-model" data-tier="premium"></select>
+                            <label><input type="checkbox" id="codex-auto-replace" checked>
+                                Automatically replace unavailable models</label>
+                            <button class="settings-btn" id="codex-routing-save-btn">Save Codex Routing</button>
+                            <div id="codex-fallback-text" class="settings-help" style="display:none;"></div>
+                        </div>
+                    </div>
+
                     <div class="settings-section" id="openai-key-settings">
                         <div class="settings-section-title">OpenAI API Key</div>
-                        <div class="settings-help">
+                        <div class="settings-help" id="openai-key-help">
                             Needed for the Legacy and OpenAI providers. Stored locally on this machine.
                             <span id="openai-key-status-text"></span>
                         </div>
@@ -7292,7 +7324,8 @@
                 legacy:   'Legacy (GPT-4.1): stable baseline, recommended. Uses your OpenAI API key.',
                 openai:   'OpenAI (GPT-5.x): next-gen cloud, tested per task. Uses your OpenAI API key.',
                 gemini:   'Gemini 3.1: alternative cloud provider, tested per task. Requires a Google API key.',
-                lmstudio: 'Local / Custom Server: point at any OpenAI-compatible server below. Zero cost when local.'
+                lmstudio: 'Local / Custom Server: point at any OpenAI-compatible server below. Zero cost when local.',
+                codex_oauth: 'ChatGPT / Codex OAuth: uses models available to your ChatGPT-authenticated Codex account, not an OpenAI API key.'
             };
             function updateProviderHint(p) {
                 const el = document.getElementById('provider-help-text');
@@ -7305,6 +7338,18 @@
             function toggleGeminiField(p) {
                 const box = document.getElementById('gemini-key-settings');
                 if (box) { box.style.display = (p === 'gemini') ? 'block' : 'none'; }
+            }
+            function toggleCodexFields(p) {
+                const box = document.getElementById('codex-oauth-settings');
+                if (box) { box.style.display = (p === 'codex_oauth') ? 'block' : 'none'; }
+                const help = document.getElementById('openai-key-help');
+                if (help) {
+                    const status = document.getElementById('openai-key-status-text');
+                    help.firstChild.textContent = p === 'codex_oauth'
+                        ? 'Optional while Codex is selected. OpenAI TTS and image generation still use this separate API key. '
+                        : 'Needed for the Legacy and OpenAI providers. Stored locally on this machine. ';
+                    if (status && status.parentNode !== help) help.appendChild(status);
+                }
             }
 
             // Local/Custom endpoint load + save + test
@@ -7355,6 +7400,90 @@
                 });
             })();
 
+            // Codex app-server account status, device login, and dynamic routes.
+            (function () {
+                var latest = null;
+                var tiers = ['cheap', 'balanced', 'strong', 'premium'];
+                function renderCodex(d) {
+                    d = d || {};
+                    latest = d;
+                    var status = document.getElementById('codex-status-text');
+                    var login = document.getElementById('codex-login-btn');
+                    var logout = document.getElementById('codex-logout-btn');
+                    var refresh = document.getElementById('codex-refresh-btn');
+                    if (status) status.textContent = 'Status: ' + (!d.installed ? 'Codex CLI not installed'
+                        : d.authenticated ? ('Signed in' + (d.email ? ' as ' + d.email : '')) : 'Not signed in');
+                    if (login) login.style.display = d.authenticated ? 'none' : '';
+                    if (logout) logout.style.display = d.authenticated ? '' : 'none';
+                    if (refresh) refresh.disabled = !d.authenticated;
+                    var error = document.getElementById('codex-error-text');
+                    if (error) { error.textContent = d.error || ''; error.style.display = d.error ? 'block' : 'none'; }
+                    var models = (d.models && d.models.length) ? d.models : (d.cached_models || []);
+                    tiers.forEach(function (tier) {
+                        var select = document.getElementById('codex-' + tier + '-model');
+                        if (!select) return;
+                        var selected = (d.routes || {})[tier] || '';
+                        select.textContent = '';
+                        var automatic = document.createElement('option');
+                        automatic.value = ''; automatic.textContent = 'Automatic (account default)';
+                        select.appendChild(automatic);
+                        if (selected && !models.some(function (m) { return m.id === selected; })) {
+                            var unavailable = document.createElement('option');
+                            unavailable.value = selected; unavailable.textContent = selected + ' (unavailable)';
+                            select.appendChild(unavailable);
+                        }
+                        models.forEach(function (model) {
+                            var option = document.createElement('option');
+                            option.value = model.id; option.textContent = model.display_name || model.id;
+                            select.appendChild(option);
+                        });
+                        select.value = selected;
+                    });
+                    var auto = document.getElementById('codex-auto-replace');
+                    if (auto) auto.checked = d.auto_replace_unavailable !== false;
+                    var fallback = document.getElementById('codex-fallback-text');
+                    if (fallback) {
+                        var f = d.last_fallback;
+                        fallback.textContent = f ? (f.unavailable_model + ' is unavailable for ' + f.tier +
+                            ' tasks. Using ' + f.replacement_model + '.') : '';
+                        fallback.style.display = f ? 'block' : 'none';
+                    }
+                }
+                socket.emit('get_codex_status');
+                socket.on('codex_status', renderCodex);
+                socket.on('codex_login_started', function (d) {
+                    var box = document.getElementById('codex-device-login');
+                    if (!box) return;
+                    box.textContent = 'Open ' + d.verification_url + ' and enter code ' + d.user_code + '.';
+                    box.style.display = 'block';
+                    var poll = setInterval(function () {
+                        socket.emit('get_codex_status');
+                        if (latest && latest.authenticated) clearInterval(poll);
+                    }, 3000);
+                });
+                var login = document.getElementById('codex-login-btn');
+                if (login) login.addEventListener('click', function () { socket.emit('codex_login'); });
+                var logout = document.getElementById('codex-logout-btn');
+                if (logout) logout.addEventListener('click', function () { socket.emit('codex_logout'); });
+                var reconnect = document.getElementById('codex-reconnect-btn');
+                if (reconnect) reconnect.addEventListener('click', function () { socket.emit('get_codex_status'); });
+                var refresh = document.getElementById('codex-refresh-btn');
+                if (refresh) refresh.addEventListener('click', function () { socket.emit('refresh_codex_models'); });
+                var save = document.getElementById('codex-routing-save-btn');
+                if (save) save.addEventListener('click', function () {
+                    var routes = {};
+                    tiers.forEach(function (tier) {
+                        var select = document.getElementById('codex-' + tier + '-model');
+                        routes[tier] = select ? select.value : '';
+                    });
+                    var auto = document.getElementById('codex-auto-replace');
+                    socket.emit('set_codex_routing', {
+                        routes: routes,
+                        auto_replace_unavailable: !auto || auto.checked
+                    });
+                });
+            })();
+
             // OpenAI key save + status
             socket.emit('get_openai_key');
             socket.on('openai_key_status', function (d) {
@@ -7394,6 +7523,7 @@
                 updateProviderHint(provider);
                 toggleLocalFields(provider);
                 toggleGeminiField(provider);
+                toggleCodexFields(provider);
                 // Show loading state
                 this.disabled = true;
                 this.style.opacity = '0.6';
@@ -7408,6 +7538,7 @@
                 updateProviderHint(data.provider);
                 toggleLocalFields(data.provider);
                 toggleGeminiField(data.provider);
+                toggleCodexFields(data.provider);
                 // Clear loading state
                 providerSelect.disabled = false;
                 providerSelect.style.opacity = '1';
