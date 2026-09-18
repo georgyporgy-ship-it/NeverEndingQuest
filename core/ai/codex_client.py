@@ -492,7 +492,15 @@ class CodexProvider:
         return models
 
     def _require_chatgpt(self) -> None:
-        account = self.account(refresh=True)
+        try:
+            account = self.account(refresh=True)
+        except CodexProtocolError as exc:
+            lowered = str(exc).lower()
+            if "unauthorized" in lowered or "authentication" in lowered or "401" in lowered:
+                raise CodexAuthenticationError(
+                    "ChatGPT authentication expired. Reconnect in Settings."
+                ) from exc
+            raise
         if not account.get("authenticated"):
             raise CodexAuthenticationError(
                 "ChatGPT is not signed in through Codex. Open Settings and sign in."

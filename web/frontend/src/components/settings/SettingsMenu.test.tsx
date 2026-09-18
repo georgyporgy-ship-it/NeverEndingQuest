@@ -197,4 +197,71 @@ describe('provider and voice settings behavior', () => {
     fireEvent.mouseLeave(row)
     expect(screen.queryByRole('tooltip')).toBeNull()
   })
+
+  it('renders discovered Codex models and saves independent tier routing', () => {
+    useDialogs.getState().setProvider({ provider: 'codex_oauth' })
+    useDialogs.getState().setCodexStatus({
+      installed: true,
+      authenticated: true,
+      email: 'player@example.com',
+      plan_type: 'plus',
+      models: [
+        {
+          id: 'account-default',
+          display_name: 'Account Default',
+          supported_reasoning_efforts: ['low', 'medium', 'high'],
+          default_reasoning_effort: 'medium',
+          is_default: true,
+        },
+        {
+          id: 'account-strong',
+          display_name: 'Account Strong',
+          supported_reasoning_efforts: ['high'],
+          default_reasoning_effort: 'high',
+          is_default: false,
+        },
+      ],
+      routes: { cheap: '', balanced: '', strong: 'account-strong', premium: '' },
+      auto_replace_unavailable: true,
+      last_fallback: null,
+      error: null,
+    })
+    render(<SettingsMenu />)
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+
+    expect(screen.getByText(/Signed in as player@example.com/)).toBeTruthy()
+    expect((screen.getByLabelText('Strong tasks') as HTMLSelectElement).value).toBe('account-strong')
+    fireEvent.change(screen.getByLabelText('Cheap tasks'), { target: { value: 'account-default' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save Codex Routing' }))
+    expect(emitC).toHaveBeenCalledWith('set_codex_routing', {
+      routes: {
+        cheap: 'account-default', balanced: '', strong: 'account-strong', premium: '',
+      },
+      auto_replace_unavailable: true,
+    })
+  })
+
+  it('starts Codex device login and displays the returned code', () => {
+    useDialogs.getState().setProvider({ provider: 'codex_oauth' })
+    useDialogs.getState().setCodexStatus({
+      installed: true,
+      authenticated: false,
+      models: [],
+      routes: { cheap: '', balanced: '', strong: '', premium: '' },
+      auto_replace_unavailable: true,
+      error: null,
+    })
+    render(<SettingsMenu />)
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in with ChatGPT' }))
+    expect(emitC).toHaveBeenCalledWith('codex_login', undefined)
+
+    act(() => useDialogs.getState().setCodexLogin({
+      login_id: 'login-1',
+      verification_url: 'https://auth.openai.com/codex/device',
+      user_code: 'ABCD-1234',
+    }))
+    expect(screen.getByText('ABCD-1234')).toBeTruthy()
+    expect(screen.getByRole('link').getAttribute('href')).toBe('https://auth.openai.com/codex/device')
+  })
 })

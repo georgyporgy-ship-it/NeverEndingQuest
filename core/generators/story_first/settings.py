@@ -62,9 +62,9 @@ def gold_model_config(
     model_config_module: Optional[ModuleType] = None,
 ) -> Dict[str, Any]:
     """Return a detached named cloud configuration for one gold-path stage."""
-    if provider not in {"openai", "gemini", "lmstudio"}:
+    if provider not in {"openai", "gemini", "lmstudio", "codex_oauth"}:
         raise StoryFirstProviderUnsupportedError(
-            "The story-first gold path requires OpenAI, Gemini, or LM Studio."
+            "The story-first gold path requires OpenAI, Gemini, LM Studio, or Codex OAuth."
         )
     if stage not in _GOLD_STAGE_TASK_IDS:
         raise ValueError(f"unknown story-first model stage: {stage}")
@@ -81,8 +81,11 @@ def gold_model_config(
             "openai": "DM_MAIN_GPT52_NONE",
             "gemini": "DM_MAIN_GEMINI_PRO_LOW",
             "lmstudio": "DM_MAIN_LMSTUDIO",
-        }[provider]
-        value = getattr(model_config_module, legacy_name, None)
+        }.get(provider)
+        value = (
+            getattr(model_config_module, legacy_name, None)
+            if legacy_name else None
+        )
     if not isinstance(value, dict) or not isinstance(value.get("model"), str):
         raise ValueError(f"invalid story-first model configuration: {stage}")
     allowed = {
@@ -91,6 +94,7 @@ def gold_model_config(
         "thinking_level",
         "max_tokens",
         "max_completion_tokens",
+        "codex_tier",
     }
     if set(value) - allowed:
         raise ValueError(

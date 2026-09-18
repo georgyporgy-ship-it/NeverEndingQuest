@@ -181,6 +181,9 @@ def _identifier_hash(value: Any) -> str:
 def _configured_cost(model: str, usage: Usage, provider: str) -> Optional[float]:
     if provider == "lmstudio":
         return 0.0
+    if provider == "codex_oauth":
+        # ChatGPT/Codex usage is account-plan based, not OpenAI API pricing.
+        return None
     try:
         return capture_module._calculate_cost(
             model,

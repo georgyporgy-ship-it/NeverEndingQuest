@@ -47,7 +47,9 @@ from model_config import *
 # --- API Keys ---
 # WARNING: Replace with your actual API keys and move to environment variables in production
 #
-# OPENAI_API_KEY (Required): Used for Legacy (GPT-4.1) and OpenAI (GPT-5.x) providers
+# OPENAI_API_KEY (Optional by feature): Used for Legacy (GPT-4.1), OpenAI
+# (GPT-5.x), OpenAI TTS, and OpenAI image generation. ChatGPT / Codex OAuth
+# game text does not use this key.
 # Get your key at: https://platform.openai.com/api-keys
 OPENAI_API_KEY = "your_openai_api_key_here"
 
@@ -60,6 +62,10 @@ GEMINI_API_KEY = "your_gemini_api_key_here"
 # Settings -> AI Provider -> Local / Custom Server. Non-secret endpoint choices
 # are stored in user_settings.json; credentials use the OS credential store.
 # Defaults to http://localhost:1234/v1 when unset.
+
+# ChatGPT / Codex OAuth (optional) is configured only through Settings. The
+# official Codex app-server owns its credentials and refresh lifecycle; no
+# ChatGPT token belongs in this file or in NeverEndingQuest's API-key settings.
 
 # --- Module folder structure ---
 MODULES_DIR = "modules"

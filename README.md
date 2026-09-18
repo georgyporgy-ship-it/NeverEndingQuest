@@ -135,6 +135,57 @@ Open **Settings → AI Provider** and choose one of these modes:
 - **Gemini 3.1**: Uses Gemini models selected per call site. Requires a Google AI API key.
 - **Local / Custom Server**: Connects to an OpenAI-compatible endpoint such as
   LM Studio, Ollama, vLLM, OpenRouter, or another remote server.
+- **ChatGPT / Codex OAuth**: Uses the official Codex app-server and the models
+  available to your ChatGPT-authenticated Codex account. It does not use an
+  OpenAI API key for game text.
+
+#### ChatGPT / Codex OAuth
+
+This optional provider runs NeverEndingQuest text-generation calls through the
+official [Codex app-server](https://developers.openai.com/codex/app-server).
+Codex owns the ChatGPT sign-in flow, stores and refreshes its credentials, and
+performs inference. NeverEndingQuest does not read `~/.codex/auth.json`, copy
+ChatGPT tokens, or store those credentials in `user_settings.json`.
+
+1. Install a current [Codex CLI](https://developers.openai.com/codex/cli/) and
+   confirm `codex --version` works in the environment that launches the game.
+   Set `CODEX_BINARY` to the executable path if `codex` is not on `PATH`.
+2. Open **Settings → AI Provider** and choose **ChatGPT / Codex OAuth**.
+3. Select **Sign in with ChatGPT**, open the displayed verification URL, and
+   enter the device code. The persistent app-server completes and maintains the
+   official login.
+4. Select **Refresh Models** after sign-in. The model dropdowns are populated
+   from Codex's `model/list` result for that account and plan.
+
+Codex routing is independent of the OpenAI API provider's tested call-site
+matrix. NeverEndingQuest maps its call sites to four configurable capability
+tiers: **cheap**, **balanced**, **strong**, and **premium**. Each tier can use
+the account default or a model from the live catalogue. The game does not embed
+today's Codex model names as permanent application logic.
+
+Newly discovered models are offered for manual selection but do not replace a
+healthy saved route automatically. If a configured model disappears, the
+adapter selects the nearest configured available tier, then the account default
+if necessary. The UI reports the unavailable model and temporary replacement.
+When **Automatically replace unavailable models** is enabled, only that broken
+route is updated. Use **Refresh Models** to re-check availability at any time.
+
+Every NeverEndingQuest request starts a fresh ephemeral Codex thread, injects
+the exact game-managed context for that call, and uses a read-only, no-approval
+execution policy. Codex does not maintain a second game conversation. Strict
+JSON schemas are forwarded as app-server `outputSchema` where a call site
+provides one, and results are normalized back to the existing OpenAI-style
+`response.choices[0].message.content`, `response.model`, and `response.usage`
+contract.
+
+ChatGPT/Codex availability and limits depend on the signed-in account. This is
+separate from OpenAI API billing and credentials. OpenAI TTS and image features
+still require the existing OpenAI API key when used. Developers with a local
+authenticated Codex installation can run the optional live smoke test with:
+
+```bash
+NEQ_CODEX_LIVE_TEST=1 python -m pytest -q tests/test_codex_client.py
+```
 
 #### Why OpenAI (GPT-5.x) is now the default
 
@@ -328,7 +379,7 @@ See [LICENSING.md](LICENSING.md) for complete details, FAQ, and legal informatio
 ### Prerequisites
 - Python 3.9 or higher
 - Node.js LTS (required for the React player; legacy remains available without it)
-- One AI provider: OpenAI, Gemini, or a local OpenAI-compatible server such as LM Studio
+- One AI provider: OpenAI, Gemini, ChatGPT-authenticated Codex, or a local OpenAI-compatible server such as LM Studio
 - 4GB+ RAM recommended
 - Modern web browser (Chrome, Firefox, Edge)
 - Windows, macOS, or Linux
@@ -1073,8 +1124,8 @@ AI: "The explosion engulfs three goblins..."
 ### AI Provider and Credentials
 
 Use **Settings → AI Provider** in the web interface instead of assigning a
-single model in `config.py`. Choose OpenAI (default), Legacy, Gemini, or Local /
-Custom Server. The application maintains its tested per-call-site model matrix in
+single model in `config.py`. Choose OpenAI (default), Legacy, Gemini, Local /
+Custom Server, or ChatGPT / Codex OAuth. The application maintains its tested per-call-site model matrix in
 `model_config.py`, and the active provider persists in `user_settings.json`.
 
 - **Default provider is `openai`** (the cost-optimized GPT-5.x call-site matrix).
@@ -1083,6 +1134,8 @@ Custom Server. The application maintains its tested per-call-site model matrix i
 - Legacy and OpenAI require an OpenAI API key.
 - Gemini requires a Google AI API key.
 - Local endpoints generally do not require a key; hosted compatible endpoints may.
+- ChatGPT / Codex OAuth uses Codex-managed ChatGPT authentication and a dynamic
+  account catalogue. It does not use either API-key setting for game text.
 - Use **Test Connection** after configuring a Local / Custom Server.
 - Never commit `config.py`, `user_settings.json`, API keys, or captured provider traffic.
 
