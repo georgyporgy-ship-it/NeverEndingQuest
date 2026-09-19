@@ -641,7 +641,7 @@ class CodexProvider:
                 "input": [{"type": "text", "text": final_text}],
                 "model": selected,
                 "approvalPolicy": "never",
-                "sandboxPolicy": {"type": "readOnly", "access": {"type": "restricted", "includePlatformDefaults": False, "readableRoots": []}},
+                "sandboxPolicy": {"type": "readOnly"},
             }
             if effort:
                 turn_params["effort"] = effort
