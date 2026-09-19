@@ -506,7 +506,10 @@ class CodexProvider:
 
     def _require_chatgpt(self) -> None:
         try:
-            account = self.account(refresh=True)
+            # Managed ChatGPT auth refreshes automatically.  Forcing a token
+            # refresh before every inference can temporarily report a valid
+            # persisted CLI login as unauthenticated.
+            account = self.account(refresh=False)
         except CodexProtocolError as exc:
             lowered = str(exc).lower()
             if "unauthorized" in lowered or "authentication" in lowered or "401" in lowered:
