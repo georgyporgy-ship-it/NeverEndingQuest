@@ -253,6 +253,13 @@ class CodexAppServer:
         timeout: float = DEFAULT_TIMEOUT,
         ensure_started: bool = True,
     ) -> Dict[str, Any]:
+        # Start the transport before registering this request.  start() cleans
+        # up a previous child via stop(), and stop() deliberately fails every
+        # pending waiter.  Registering first therefore made the first request
+        # on a new provider fail locally with "Codex app-server stopped" even
+        # though the newly initialized child was healthy and authenticated.
+        if ensure_started:
+            self.start()
         with self._pending_lock:
             self._next_id += 1
             request_id = self._next_id
@@ -262,7 +269,7 @@ class CodexAppServer:
             message: Dict[str, Any] = {"id": request_id, "method": method}
             if params is not None:
                 message["params"] = params
-            self._send(message, ensure_started=ensure_started)
+            self._send(message, ensure_started=False)
             try:
                 response = waiter.get(timeout=timeout)
             except queue.Empty as exc:
