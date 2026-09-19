@@ -430,6 +430,26 @@ def test_malformed_json_from_app_server_unblocks_notification_waiter():
         rpc.wait_notification(lambda _message: False, timeout=0.1)
 
 
+def test_first_request_starts_transport_before_registering_waiter(monkeypatch):
+    rpc = CodexAppServer(binary="codex")
+    events = []
+
+    def start():
+        events.append("start")
+        assert rpc._pending == {}
+
+    def send(message, ensure_started=True):
+        events.append(("send", ensure_started))
+        with rpc._pending_lock:
+            rpc._pending[message["id"]].put({"id": message["id"], "result": {"ok": True}})
+
+    monkeypatch.setattr(rpc, "start", start)
+    monkeypatch.setattr(rpc, "_send", send)
+
+    assert rpc.request("account/read", {"refreshToken": False}) == {"ok": True}
+    assert events == ["start", ("send", False)]
+
+
 def test_timeout_is_reported_without_hidden_retry(isolated_settings):
     class TimeoutRpc(FakeRpc):
         def wait_notification(self, predicate, timeout):
