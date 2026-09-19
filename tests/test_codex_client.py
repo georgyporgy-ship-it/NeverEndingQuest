@@ -74,8 +74,8 @@ class FakeRpc:
             return {"data": self.models, "nextCursor": None}
         if method == "thread/start":
             self.thread_counter += 1
-            return {"thread": {"id": f"thread-{self.thread_counter}", "ephemeral": True}}
-        if method in {"thread/inject_items", "thread/unsubscribe"}:
+            return {"thread": {"id": f"thread-{self.thread_counter}", "ephemeral": False}}
+        if method in {"thread/inject_items", "thread/delete"}:
             return {}
         if method == "turn/start":
             thread_id = params["threadId"]
@@ -151,7 +151,7 @@ def complete(provider, **overrides):
     return provider.complete(**kwargs)
 
 
-def test_authenticated_text_request_is_normalized_and_ephemeral(isolated_settings):
+def test_authenticated_text_request_is_normalized_and_deleted(isolated_settings):
     rpc = FakeRpc(text="A clean answer")
     result = complete(CodexProvider(rpc))
     assert result["content"] == "A clean answer"
@@ -164,9 +164,15 @@ def test_authenticated_text_request_is_normalized_and_ephemeral(isolated_setting
         "reasoning_tokens": 2,
     }
     thread = next(params for method, params, _ in rpc.requests if method == "thread/start")
-    assert thread["ephemeral"] is True
+    assert "ephemeral" not in thread
+    assert "baseInstructions" not in thread
     assert thread["approvalPolicy"] == "never"
-    assert thread["sandbox"] == "read-only"
+    assert thread["sandbox"] == "readOnly"
+    injected = next(params for method, params, _ in rpc.requests if method == "thread/inject_items")
+    assert injected["items"][0]["role"] == "developer"
+    turn = next(params for method, params, _ in rpc.requests if method == "turn/start")
+    assert "text_elements" not in turn["input"][0]
+    assert any(method == "thread/delete" for method, _, _ in rpc.requests)
 
 
 def test_each_request_uses_a_new_thread_without_hidden_history(isolated_settings):
@@ -184,7 +190,9 @@ def test_existing_messages_are_injected_and_final_user_starts_turn(isolated_sett
     rpc = FakeRpc(text="answer")
     complete(CodexProvider(rpc))
     injected = next(params for method, params, _ in rpc.requests if method == "thread/inject_items")
-    assert [item["role"] for item in injected["items"]] == ["developer", "assistant"]
+    assert [item["role"] for item in injected["items"]] == [
+        "developer", "developer", "assistant"
+    ]
     turn = next(params for method, params, _ in rpc.requests if method == "turn/start")
     assert turn["input"][0]["text"] == "Current request"
 
