@@ -600,7 +600,7 @@ class CodexProvider:
                     "model": selected,
                     "cwd": str(Path(temp_dir.name).resolve()),
                     "approvalPolicy": "never",
-                    "sandbox": "readOnly",
+                    "sandbox": "read-only",
                 },
                 timeout=min(30, timeout),
             )
