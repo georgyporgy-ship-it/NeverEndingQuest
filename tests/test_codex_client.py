@@ -263,6 +263,13 @@ def test_unauthenticated_state_fails_before_inference(isolated_settings):
     assert not any(method == "thread/start" for method, _, _ in rpc.requests)
 
 
+def test_inference_reuses_managed_chatgpt_session_without_forced_refresh(isolated_settings):
+    rpc = FakeRpc(text="answer")
+    complete(CodexProvider(rpc))
+    account_request = next(params for method, params, _ in rpc.requests if method == "account/read")
+    assert account_request == {"refreshToken": False}
+
+
 def test_app_server_unavailable_is_reported_without_start_attempt():
     class UnavailableRpc(FakeRpc):
         installed = False
