@@ -3,8 +3,9 @@
 The adapter deliberately does not inspect Codex credential files or handle
 OAuth tokens.  A persistent ``codex app-server`` child owns authentication,
 credential persistence, refresh, model discovery, and inference.  Each game
-request uses a fresh ephemeral thread so NeverEndingQuest's message list is the
-only conversation history seen by the model.
+request uses a fresh thread that is deleted after completion so
+NeverEndingQuest's message list is the only conversation history seen by the
+model.
 """
 
 from __future__ import annotations
@@ -589,12 +590,7 @@ class CodexProvider:
                     "model": selected,
                     "cwd": str(Path(temp_dir.name).resolve()),
                     "approvalPolicy": "never",
-                    "sandbox": "read-only",
-                    "ephemeral": True,
-                    "baseInstructions": (
-                        "Answer only from the supplied conversation. Do not inspect files, "
-                        "run commands, use tools, or rely on any prior thread history."
-                    ),
+                    "sandbox": "readOnly",
                 },
                 timeout=min(30, timeout),
             )
@@ -603,7 +599,13 @@ class CodexProvider:
             if not isinstance(thread_id, str) or not thread_id:
                 raise CodexProtocolError("thread/start returned no thread id")
 
-            request_messages = list(messages or [])
+            request_messages = [{
+                "role": "system",
+                "content": (
+                    "Answer only from the supplied conversation. Do not inspect files, "
+                    "run commands, use tools, or rely on any prior thread history."
+                ),
+            }] + list(messages or [])
             final_user = None
             if request_messages and request_messages[-1].get("role") == "user":
                 final_user = request_messages.pop()
@@ -626,7 +628,7 @@ class CodexProvider:
 
             turn_params: Dict[str, Any] = {
                 "threadId": thread_id,
-                "input": [{"type": "text", "text": final_text, "text_elements": []}],
+                "input": [{"type": "text", "text": final_text}],
                 "model": selected,
                 "approvalPolicy": "never",
                 "sandboxPolicy": {"type": "readOnly", "access": {"type": "restricted", "includePlatformDefaults": False, "readableRoots": []}},
@@ -688,11 +690,11 @@ class CodexProvider:
                 "raw_response": completed_message,
             }
         finally:
-            # Ephemeral root threads live only in memory and cannot be deleted.
-            # Unsubscribe lets app-server release them after its inactivity grace.
+            # Root threads are persisted by app-server. Delete every request
+            # thread so the game never leaves hidden conversation history.
             if thread_id:
                 try:
-                    self.rpc.request("thread/unsubscribe", {"threadId": thread_id}, timeout=5)
+                    self.rpc.request("thread/delete", {"threadId": thread_id}, timeout=5)
                 except CodexError:
                     pass
             temp_dir.cleanup()
