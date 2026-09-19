@@ -167,7 +167,7 @@ def test_authenticated_text_request_is_normalized_and_deleted(isolated_settings)
     assert "ephemeral" not in thread
     assert "baseInstructions" not in thread
     assert thread["approvalPolicy"] == "never"
-    assert thread["sandbox"] == "readOnly"
+    assert thread["sandbox"] == "read-only"
     injected = next(params for method, params, _ in rpc.requests if method == "thread/inject_items")
     assert injected["items"][0]["role"] == "developer"
     turn = next(params for method, params, _ in rpc.requests if method == "turn/start")
