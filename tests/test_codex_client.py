@@ -1,5 +1,6 @@
 import io
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -600,6 +601,42 @@ def test_codex_capture_boundary_preserves_retry_rung(monkeypatch, isolated_setti
     )
     assert response.choices[0].message.content == "retry"
     assert seen["reasoning_effort"] == "medium"
+
+
+def test_startup_wizard_routes_t092_through_codex(monkeypatch):
+    import utils.startup_wizard as startup_wizard
+
+    class Scope:
+        @staticmethod
+        def is_superseded():
+            return False
+
+    seen = {}
+
+    def fake_capture(task_id, target, **kwargs):
+        seen.update(task_id=task_id, target=target, kwargs=kwargs)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="ready"))]
+        )
+
+    monkeypatch.setattr(model_config, "MODEL_PROVIDER", "codex_oauth")
+    monkeypatch.setattr(startup_wizard, "capture_and_fanout", fake_capture)
+    monkeypatch.setattr(startup_wizard, "_emit_startup_phase", lambda _phase: None)
+    monkeypatch.setattr(startup_wizard, "status_processing_ai", lambda: None)
+    monkeypatch.setattr(startup_wizard, "status_ready", lambda: None)
+
+    result = startup_wizard.get_ai_response(
+        [{"role": "user", "content": "start"}],
+        persist_response=False,
+        live_scope=Scope(),
+    )
+
+    assert result == "ready"
+    assert seen["task_id"] == "T092"
+    assert seen["kwargs"]["_request_provider"] == "codex_oauth"
+    assert seen["kwargs"]["model"] == "codex-tier:cheap"
+    assert seen["kwargs"]["codex_preferred_model"] == "gpt-5.6-luna"
+    assert seen["kwargs"]["reasoning_effort"] == "none"
 
 
 @pytest.mark.skipif(
