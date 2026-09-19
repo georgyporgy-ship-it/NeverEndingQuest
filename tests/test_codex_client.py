@@ -172,6 +172,7 @@ def test_authenticated_text_request_is_normalized_and_deleted(isolated_settings)
     assert injected["items"][0]["role"] == "developer"
     turn = next(params for method, params, _ in rpc.requests if method == "turn/start")
     assert "text_elements" not in turn["input"][0]
+    assert turn["sandboxPolicy"] == {"type": "readOnly"}
     assert any(method == "thread/delete" for method, _, _ in rpc.requests)
 
 
