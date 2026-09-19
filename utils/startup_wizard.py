@@ -1697,17 +1697,20 @@ def get_ai_response(conversation, response_format=None, *, persist_response=True
         LiveProviderSuperseded, finish_live_turn_scope, open_live_turn_scope,
         _interruptible_wait, _delay_for_error,
     )
-    from model_config import MODEL_PROVIDER
+    from model_config import MODEL_PROVIDER, resolve_callsite_config
 
     owned = live_scope is None
     scope = open_live_turn_scope() if owned else live_scope
     provider = MODEL_PROVIDER
-    main_cfg = {
-        "openai": config.DM_MAIN_GPT52_NONE,
-        "gemini": config.DM_MAIN_GEMINI_PRO_LOW,
-        "lmstudio": config.DM_MAIN_LMSTUDIO,
-        "legacy": config.DM_MAIN_LEGACY,
-    }[provider]
+    if provider == "codex_oauth":
+        main_cfg = resolve_callsite_config("T092", provider=provider)
+    else:
+        main_cfg = {
+            "openai": config.DM_MAIN_GPT52_NONE,
+            "gemini": config.DM_MAIN_GEMINI_PRO_LOW,
+            "lmstudio": config.DM_MAIN_LMSTUDIO,
+            "legacy": config.DM_MAIN_LEGACY,
+        }[provider]
 
     request_messages = copy.deepcopy(conversation)
     _emit_startup_phase(startup_phase)
